@@ -1,27 +1,25 @@
 import leabra
 import numpy as np
 import matplotlib.pyplot as plt
-from deep_obj_cat.sims.cemer import cemer_network
-from deep_obj_cat.papers.deepredIrn2021.deep_pred_lrn_2021 import DeepPredLrn
 
 # Définir les paramètres du modèle
 n_input = 784  # Taille de l'entrée (par exemple, pour une image 28x28)
 n_hidden = 500  # Nombre de neurones dans la couche cachée
 n_output = 10  # Nombre de classes de sortie
 
-# Créer le réseau en utilisant CEMER
-net = cemer_network.Network()
+# Créer le réseau
+net = leabra.Network()
 
-# Ajouter les couches avec DeepPredLrn
-input_layer = DeepPredLrn(n_input, name='input')
-hidden_layer = DeepPredLrn(n_hidden, name='hidden')
-output_layer = DeepPredLrn(n_output, name='output')
+# Ajouter les couches
+input_layer = leabra.Layer(n_input, name='input')
+hidden_layer = leabra.Layer(n_hidden, name='hidden')
+output_layer = leabra.Layer(n_output, name='output')
 
 net.add_layers([input_layer, hidden_layer, output_layer])
 
 # Connecter les couches
-net.connect(input_layer, hidden_layer)
-net.connect(hidden_layer, output_layer)
+net.connect(input_layer, hidden_layer, 'full')
+net.connect(hidden_layer, output_layer, 'full')
 
 # Fonction pour générer des données d'entraînement synthétiques
 def generate_synthetic_data(n_samples):
@@ -40,18 +38,18 @@ def train_model(net, X, y, epochs=10):
         epoch_loss = 0
         for i in range(len(X)):
             # Définir l'entrée
-            input_layer.set_input(X[i])
+            input_layer.act = X[i]
             
             # Définir la sortie cible
             target = np.zeros(n_output)
             target[y[i]] = 1
             output_layer.set_target(target)
             
-            # Exécuter un cycle avec prédiction profonde
-            net.deep_pred_cycle()
+            # Exécuter un cycle
+            net.cycle()
             
-            # Calculer la perte
-            loss = output_layer.compute_loss()
+            # Calculer la perte (erreur quadratique moyenne)
+            loss = np.mean((output_layer.act - target) ** 2)
             epoch_loss += loss
         
         losses.append(epoch_loss / len(X))
@@ -71,9 +69,9 @@ plt.show()
 
 # Fonction pour tester le modèle sur une nouvelle entrée
 def test_model(net, input_data):
-    input_layer.set_input(input_data)
-    net.deep_pred_cycle()
-    return output_layer.get_output()
+    input_layer.act = input_data
+    net.cycle()
+    return output_layer.act
 
 # Exemple de test
 test_input = np.random.rand(n_input)
@@ -81,5 +79,5 @@ prediction = test_model(net, test_input)
 print("Prédiction pour l'entrée de test:", prediction)
 print("Classe prédite:", np.argmax(prediction))
 
-# Sauvegarder le modèle
-net.save('deepleabra_model.pkl')
+# Sauvegarder le modèle (si la fonctionnalité est disponible dans Leabra)
+# net.save('deepleabra_model.pkl')  # Commenté car non disponible dans la version de base de Leabra
