@@ -1,4 +1,4 @@
-import leabra
+import cemer_network
 import numpy as np
 import matplotlib.pyplot as plt
 
@@ -7,19 +7,19 @@ n_input = 784  # Taille de l'entrée (par exemple, pour une image 28x28)
 n_hidden = 500  # Nombre de neurones dans la couche cachée
 n_output = 10  # Nombre de classes de sortie
 
-# Créer le réseau
-net = leabra.Network()
+# Créer le réseau CEMER
+net = cemer_network.Network()
 
-# Ajouter les couches
-input_layer = leabra.Layer(n_input, name='input')
-hidden_layer = leabra.Layer(n_hidden, name='hidden')
-output_layer = leabra.Layer(n_output, name='output')
+# Ajouter les couches avec DeepPredLrn
+input_layer = cemer_network.DeepPredLrn(n_input, name='input')
+hidden_layer = cemer_network.DeepPredLrn(n_hidden, name='hidden')
+output_layer = cemer_network.DeepPredLrn(n_output, name='output')
 
 net.add_layers([input_layer, hidden_layer, output_layer])
 
-# Connecter les couches
-net.connect(input_layer, hidden_layer, 'full')
-net.connect(hidden_layer, output_layer, 'full')
+# Connecter les couches avec CEMER
+net.connect_layers(input_layer, hidden_layer)
+net.connect_layers(hidden_layer, output_layer)
 
 # Fonction pour générer des données d'entraînement synthétiques
 def generate_synthetic_data(n_samples):
@@ -45,11 +45,11 @@ def train_model(net, X, y, epochs=10):
             target[y[i]] = 1
             output_layer.set_target(target)
             
-            # Exécuter un cycle
-            net.cycle()
+            # Exécuter un cycle avec CEMER
+            net.deep_pred_cycle()
             
-            # Calculer la perte (erreur quadratique moyenne)
-            loss = np.mean((output_layer.act - target) ** 2)
+            # Calculer la perte (utiliser la fonction de perte de CEMER si disponible)
+            loss = net.compute_loss(output_layer.act, target)
             epoch_loss += loss
         
         losses.append(epoch_loss / len(X))
@@ -70,7 +70,7 @@ plt.show()
 # Fonction pour tester le modèle sur une nouvelle entrée
 def test_model(net, input_data):
     input_layer.act = input_data
-    net.cycle()
+    net.deep_pred_cycle()
     return output_layer.act
 
 # Exemple de test
@@ -79,5 +79,5 @@ prediction = test_model(net, test_input)
 print("Prédiction pour l'entrée de test:", prediction)
 print("Classe prédite:", np.argmax(prediction))
 
-# Sauvegarder le modèle (si la fonctionnalité est disponible dans Leabra)
-# net.save('deepleabra_model.pkl')  # Commenté car non disponible dans la version de base de Leabra
+# Sauvegarder le modèle avec CEMER
+net.save('cemer_deepleabra_model.pkl')
