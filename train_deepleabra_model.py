@@ -8,6 +8,7 @@ n_hidden = 500  # Nombre de neurones dans la couche cachée
 n_output = 10  # Nombre de classes de sortie
 
 # Créer le réseau CEMER
+
 net = cemer_network.Network()
 
 # Ajouter les couches avec DeepPredLrn
