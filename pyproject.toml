@@ -1,0 +1,16 @@
+[tool.poetry]
+name = "vigint"
+version = "0.1.0"
+description = "A security surveillance application"
+authors = ["Your Name <your.email@example.com>"]
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = "^3.10"
+opencv-python = "^4.9.0"
+requests = "^2.31.0"
+google-generativeai = "^0.3.2"
+[tool.poetry.group.dev.dependencies]
+
+[[tool.poetry.packages]]
+include = "vigint"
