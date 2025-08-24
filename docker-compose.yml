@@ -1,0 +1,63 @@
+version: '3.8'
+
+services:
+  vigint:
+    build: .
+    ports:
+      - "5000:5000"    # API
+      - "8554:8554"    # RTSP
+      - "9997:9997"    # MediaMTX API
+      - "9998:9998"    # MediaMTX Metrics
+    environment:
+      - VIGINT_CONFIG_PATH=/app/config.ini
+    volumes:
+      - ./config.ini:/app/config.ini:ro
+      - ./logs:/app/logs
+      - ./recordings:/app/recordings
+      - vigint_data:/app/data
+    depends_on:
+      - postgres
+      - redis
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  postgres:
+    image: postgres:15
+    environment:
+      POSTGRES_DB: vigint
+      POSTGRES_USER: vigint
+      POSTGRES_PASSWORD: vigint_password
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    restart: unless-stopped
+
+  nginx:
+    image: nginx:alpine
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./ssl:/etc/nginx/ssl:ro
+    depends_on:
+      - vigint
+    restart: unless-stopped
+
+volumes:
+  vigint_data:
+  postgres_data:
+  redis_data:

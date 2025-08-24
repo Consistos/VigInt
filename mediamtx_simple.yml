@@ -1,0 +1,73 @@
+# MediaMTX configuration for Vigint RTSP server
+
+# General settings
+logLevel: info
+logDestinations: [stdout]
+logFile: mediamtx.log
+
+# API settings
+api: yes
+apiAddress: 127.0.0.1:9997
+
+# Metrics settings
+metrics: yes
+metricsAddress: 127.0.0.1:9998
+
+# RTSP settings
+rtspDisable: no
+rtspAddress: :8554
+rtspAuthMethods: [basic]
+
+# RTMP settings (optional)
+rtmpDisable: yes
+
+# HLS settings (optional)
+hlsDisable: yes
+
+# WebRTC settings (optional)
+webrtcDisable: yes
+
+# Default path settings
+pathDefaults:
+  # Authentication
+  readUser: ""
+  readPass: ""
+  publishUser: vigint
+  publishPass: vigint123
+  
+  # Recording
+  record: no
+  recordPath: ./recordings/%path/%Y-%m-%d_%H-%M-%S-%f.mp4
+  recordFormat: mp4
+  recordPartDuration: 1h
+  recordSegmentDuration: 1h
+  recordDeleteAfter: 24h
+  
+  # Republishing
+  runOnInit: ""
+  runOnInitRestart: no
+  runOnDemand: ""
+  runOnDemandRestart: no
+  runOnDemandStartTimeout: 10s
+  runOnDemandCloseAfter: 10s
+  runOnReady: ""
+  runOnReadyRestart: no
+  runOnNotReady: ""
+  runOnNotReadyRestart: no
+
+# Specific paths
+paths:
+  # Default catch-all path
+  ~^.*$:
+    # Allow any source
+    source: publisher
+    
+  # Example: Static video file streaming
+  # test:
+  #   source: /path/to/video.mp4
+  #   sourceOnDemand: yes
+  
+  # Example: Camera stream
+  # camera1:
+  #   source: rtsp://admin:password@192.168.1.100:554/stream1
+  #   sourceOnDemand: yes

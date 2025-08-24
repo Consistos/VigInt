@@ -1,0 +1,44 @@
+[Database]
+# Production database connection
+database_url = postgresql://username:password@localhost/vigint_prod
+
+[API]
+# Production API configuration
+secret_key = your-production-secret-key-here
+debug = false
+host = 0.0.0.0
+port = 8000
+
+[Email]
+# Production email configuration
+smtp_server = smtp.gmail.com
+smtp_port = 587
+sender_email = billing@vigint.com
+sender_password = your-production-email-password-here
+
+[Stripe]
+# Production Stripe configuration
+api_key = your-production-stripe-api-key-here
+webhook_secret = your-production-stripe-webhook-secret-here
+
+[Qonto]
+# Production Qonto configuration
+api_key = your-production-qonto-api-key-here
+organization_slug = your-organization-slug
+
+[Security]
+# Security settings
+allowed_hosts = vigint.com,api.vigint.com
+cors_origins = https://vigint.com,https://app.vigint.com
+
+[Logging]
+# Production logging
+level = WARNING
+file = /var/log/vigint/vigint.log
+max_bytes = 52428800
+backup_count = 10
+
+[Monitoring]
+# Monitoring and alerting (optional)
+sentry_dsn = your-sentry-dsn-here
+datadog_api_key = your-datadog-api-key-here
