@@ -1,0 +1,29 @@
+# Minimal MediaMTX configuration with no authentication
+
+# General settings
+logLevel: info
+logDestinations: [stdout]
+
+# RTSP settings
+rtspDisable: no
+rtspAddress: :8554
+rtpAddress: :8002
+rtcpAddress: :8003
+
+# Disable other protocols
+rtmpDisable: yes
+hlsDisable: yes
+webrtcDisable: yes
+
+# Disable API and metrics to avoid port conflicts
+api: no
+metrics: no
+
+# Default path settings - no authentication
+pathDefaults:
+  source: publisher
+
+# All paths allow publishing without authentication
+paths:
+  ~^.*$:
+    source: publisher

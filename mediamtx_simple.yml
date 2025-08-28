@@ -1,4 +1,4 @@
-# MediaMTX configuration for Vigint RTSP server
+# MediaMTX configuration for Vigint RTSP server with video file
 
 # General settings
 logLevel: info
@@ -7,16 +7,16 @@ logFile: mediamtx.log
 
 # API settings
 api: yes
-apiAddress: 127.0.0.1:9997
+apiAddress: 127.0.0.1:9999
 
 # Metrics settings
 metrics: yes
-metricsAddress: 127.0.0.1:9998
+metricsAddress: 127.0.0.1:9996
 
 # RTSP settings
 rtspDisable: no
 rtspAddress: :8554
-rtspAuthMethods: [basic]
+rtspAuthMethods: []
 
 # RTMP settings (optional)
 rtmpDisable: yes
@@ -29,45 +29,42 @@ webrtcDisable: yes
 
 # Default path settings
 pathDefaults:
-  # Authentication
+  # Authentication - disabled for testing
   readUser: ""
   readPass: ""
-  publishUser: vigint
-  publishPass: vigint123
+  publishUser: ""
+  publishPass: ""
   
   # Recording
   record: no
   recordPath: ./recordings/%path/%Y-%m-%d_%H-%M-%S-%f.mp4
-  recordFormat: mp4
+  recordFormat: fmp4
   recordPartDuration: 1h
   recordSegmentDuration: 1h
   recordDeleteAfter: 24h
-  
-  # Republishing
-  runOnInit: ""
-  runOnInitRestart: no
-  runOnDemand: ""
-  runOnDemandRestart: no
-  runOnDemandStartTimeout: 10s
-  runOnDemandCloseAfter: 10s
-  runOnReady: ""
-  runOnReadyRestart: no
-  runOnNotReady: ""
-  runOnNotReadyRestart: no
 
 # Specific paths
 paths:
   # Default catch-all path
   ~^.*$:
-    # Allow any source
     source: publisher
+    publishUser: ""
+    publishPass: ""
     
-  # Example: Static video file streaming
-  # test:
-  #   source: /path/to/video.mp4
-  #   sourceOnDemand: yes
-  
-  # Example: Camera stream
-  # camera1:
-  #   source: rtsp://admin:password@192.168.1.100:554/stream1
-  #   sourceOnDemand: yes
+  # Our test video streams (will be fed by FFmpeg)
+  test_video:
+    source: publisher
+    publishUser: ""
+    publishPass: ""
+    
+  # Buffer video stream (will be fed by FFmpeg)
+  buffer_video:
+    source: publisher
+    publishUser: ""
+    publishPass: ""
+    
+  # Specific path for buffer_video_1
+  buffer_video_1:
+    source: publisher
+    publishUser: ""
+    publishPass: ""

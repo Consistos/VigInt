@@ -13,12 +13,7 @@ debug = false
 host = 0.0.0.0
 port = 5000
 
-[Email]
-# Email configuration for sending invoices
-smtp_server = smtp.gmail.com
-smtp_port = 587
-sender_email = your-email@example.com
-sender_password = your-email-password-here
+
 
 [Stripe]
 # Stripe payment processing (optional)
@@ -29,6 +24,29 @@ webhook_secret = your-stripe-webhook-secret-here
 # Qonto banking integration (optional)
 api_key = your-qonto-api-key-here
 organization_slug = your-organization-slug
+
+[RTSP]
+# RTSP server configuration
+host = localhost
+port = 8554
+username = vigint
+password = vigint123
+path = camera1
+
+[AI]
+# AI analysis configuration
+gemini_api_key = your-gemini-api-key-here
+analysis_interval = 30
+enable_alerts = true
+
+[Email]
+# Email configuration for alerts and invoices
+smtp_server = smtp.gmail.com
+smtp_port = 587
+username = your-email@example.com
+password = your-email-password-here
+from_email = your-email@example.com
+to_email = alerts@example.com
 
 [Logging]
 # Logging configuration

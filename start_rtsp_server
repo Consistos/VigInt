@@ -12,7 +12,7 @@ NC='\033[0m' # No Color
 
 # Configuration
 MEDIAMTX_BINARY="mediamtx"
-CONFIG_FILE="mediamtx_simple.yml"
+CONFIG_FILE="mediamtx_no_auth.yml"
 PID_FILE="mediamtx.pid"
 LOG_FILE="mediamtx.log"
 
@@ -99,8 +99,6 @@ start_server() {
     if kill -0 "$pid" 2>/dev/null; then
         log_info "RTSP server started successfully (PID: $pid)"
         log_info "RTSP URL: rtsp://localhost:8554/"
-        log_info "API URL: http://localhost:9997/"
-        log_info "Metrics URL: http://localhost:9998/metrics"
         log_info "Log file: $LOG_FILE"
     else
         log_error "RTSP server failed to start"
@@ -168,15 +166,7 @@ status_server() {
     if kill -0 "$pid" 2>/dev/null; then
         echo "RTSP server is running (PID: $pid)"
         
-        # Try to get some basic info
-        if command -v curl &> /dev/null; then
-            echo "Checking API endpoint..."
-            if curl -s http://localhost:9997/v1/config > /dev/null; then
-                echo "API is responding"
-            else
-                echo "API is not responding"
-            fi
-        fi
+        # API is disabled in current configuration
         
         return 0
     else

@@ -14,7 +14,7 @@ class RTSPServer:
     
     def __init__(self):
         self.process = None
-        self.config_file = "mediamtx_simple.yml"
+        self.config_file = "mediamtx_no_auth.yml"
         self.logger = logging.getLogger(__name__)
         
     def start(self):
@@ -37,9 +37,11 @@ class RTSPServer:
             )
             
             # Wait a moment to check if it started successfully
-            time.sleep(2)
+            time.sleep(3)
             if self.process.poll() is not None:
                 stdout, stderr = self.process.communicate()
+                self.logger.error(f"MediaMTX stdout: {stdout.decode()}")
+                self.logger.error(f"MediaMTX stderr: {stderr.decode()}")
                 raise RuntimeError(f"RTSP server failed to start: {stderr.decode()}")
             
             self.logger.info(f"RTSP server started with PID: {self.process.pid}")

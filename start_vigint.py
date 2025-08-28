@@ -26,6 +26,10 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# Reduce werkzeug (Flask) logging verbosity
+werkzeug_logger = logging.getLogger('werkzeug')
+werkzeug_logger.setLevel(logging.WARNING)
+
 
 def create_app():
     """Create and configure the Flask application"""
@@ -71,6 +75,155 @@ def stop_rtsp_server():
     rtsp_server.stop()
 
 
+def setup_video_streaming(video_path):
+    """Setup video streaming for the provided video file"""
+    import subprocess
+    import threading
+    
+    logger.info(f"Setting up video streaming for: {video_path}")
+    
+    # Verify video file exists
+    if not os.path.exists(video_path):
+        logger.error(f"Video file not found: {video_path}")
+        return False
+    
+    # Get video file info
+    file_size = os.path.getsize(video_path)
+    logger.info(f"Video file: {os.path.basename(video_path)} ({file_size} bytes)")
+    
+    # Create stream name from filename
+    stream_name = os.path.splitext(os.path.basename(video_path))[0]
+    rtsp_url = f"rtsp://localhost:8554/{stream_name}"
+    
+    logger.info(f"Stream will be available at: rtsp://localhost:8554/{stream_name}")
+    
+    def start_ffmpeg_stream():
+        """Start FFmpeg streaming in a separate thread"""
+        try:
+            # Wait a moment for RTSP server to be fully ready
+            time.sleep(3)
+            
+            # Test if RTSP server is accessible
+            import socket
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            result = sock.connect_ex(('localhost', 8554))
+            sock.close()
+            if result != 0:
+                logger.error("RTSP server is not accessible on port 8554")
+                return False
+            
+            logger.info(f"Starting FFmpeg stream to {rtsp_url}")
+            
+            # Try to start FFmpeg streaming
+            cmd = [
+                'ffmpeg', '-re', '-stream_loop', '-1', '-i', video_path,
+                '-c', 'copy', '-f', 'rtsp', rtsp_url
+            ]
+            
+            logger.info(f"FFmpeg command: {' '.join(cmd)}")
+            
+            process = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True
+            )
+            
+            # Monitor the process
+            stdout, stderr = process.communicate()
+            
+            if process.returncode == 0:
+                logger.info("FFmpeg streaming completed successfully")
+            else:
+                logger.warning(f"FFmpeg streaming ended with code {process.returncode}")
+                if stderr:
+                    logger.error(f"FFmpeg stderr: {stderr}")
+                else:
+                    logger.error("No stderr output from FFmpeg")
+                if stdout:
+                    logger.info(f"FFmpeg stdout: {stdout}")
+                else:
+                    logger.info("No stdout output from FFmpeg")
+                    
+        except FileNotFoundError:
+            logger.warning("FFmpeg not found or not working. Stream setup completed without auto-streaming.")
+            logger.info("You can manually stream using:")
+            logger.info(f"  VLC: Stream to {rtsp_url}")
+            logger.info(f"  FFmpeg: ffmpeg -re -i {video_path} -c copy -f rtsp {rtsp_url}")
+        except Exception as e:
+            logger.error(f"Error starting FFmpeg stream: {e}")
+            # Try a simpler approach
+            logger.info("Trying simpler FFmpeg command...")
+            try:
+                simple_cmd = [
+                    'ffmpeg', '-re', '-i', video_path,
+                    '-c', 'copy', '-f', 'rtsp', rtsp_url
+                ]
+                logger.info(f"Simple FFmpeg command: {' '.join(simple_cmd)}")
+                simple_process = subprocess.Popen(
+                    simple_cmd,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True
+                )
+                simple_stdout, simple_stderr = simple_process.communicate()
+                if simple_process.returncode != 0:
+                    logger.error(f"Simple FFmpeg also failed with code {simple_process.returncode}")
+                    if simple_stderr:
+                        logger.error(f"Simple FFmpeg stderr: {simple_stderr}")
+            except Exception as simple_e:
+                logger.error(f"Simple FFmpeg also failed: {simple_e}")
+    
+    # Start FFmpeg in background thread
+    stream_thread = threading.Thread(target=start_ffmpeg_stream, daemon=True)
+    stream_thread.start()
+    
+    logger.info("Video streaming setup completed")
+    return True
+
+
+def start_video_analysis(video_path):
+    """Start secure video analysis using API proxy"""
+    import threading
+    
+    def run_analysis():
+        try:
+            # Wait for streaming to be established
+            time.sleep(12)  # Increased wait time for stream establishment
+            
+            # Create stream name from filename
+            stream_name = os.path.splitext(os.path.basename(video_path))[0]
+            rtsp_url = f"rtsp://localhost:8554/{stream_name}"
+            
+            logger.info(f"Starting secure video analysis for stream: {rtsp_url}")
+            
+            # Import and run the secure video analyzer
+            from vigint.app import SecureVideoAnalyzer
+            
+            # Create and start secure analyzer
+            analyzer = SecureVideoAnalyzer(
+                api_base_url='http://localhost:5002',  # Use correct port (API proxy runs on 5002)
+                api_key=os.getenv('VIGINT_API_KEY')
+            )
+            analyzer.analysis_interval = 30  # Reduce frequency to avoid quota issues
+            
+            logger.info("🎯 Secure video analysis started - monitoring for security events...")
+            logger.info("🔒 All AI processing and credentials handled server-side via API proxy")
+            
+            # Start processing the video stream
+            analyzer.process_video_stream(rtsp_url)
+            
+        except Exception as e:
+            logger.error(f"Error starting video analysis: {e}")
+            logger.info("Video analysis failed to start, but streaming continues...")
+    
+    # Start analysis in background thread
+    analysis_thread = threading.Thread(target=run_analysis, daemon=True)
+    analysis_thread.start()
+    
+    logger.info("Secure video analysis thread started")
+
+
 def signal_handler(signum, frame):
     """Handle shutdown signals"""
     logger.info(f"Received signal {signum}, shutting down...")
@@ -87,8 +240,11 @@ def main():
                        help='Initialize database and exit')
     parser.add_argument('--no-rtsp', action='store_true',
                        help='Skip RTSP server startup')
+    parser.add_argument('--video-input', type=str,
+                       help='Video file to stream (e.g., /path/to/video.mp4)')
     
     args = parser.parse_args()
+    logger.info(f"Starting Vigint application with args: {args}")
     
     # Create Flask app
     app = create_app()
@@ -112,17 +268,34 @@ def main():
         if not initialize_database(app):
             return 1
         
+        # Import API proxy early but don't start it yet
+        proxy_app = None
+        if args.mode in ['api', 'full']:
+            logger.info("Importing API proxy...")
+            from api_proxy import app as proxy_app
+        
         # Start RTSP server if needed
         if args.mode in ['rtsp', 'full'] and not args.no_rtsp:
+            logger.info(f"Mode: {args.mode}, no_rtsp: {args.no_rtsp}")
+            logger.info("Attempting to start RTSP server...")
             if not start_rtsp_server():
+                logger.error("RTSP server startup failed, exiting")
                 return 1
-        
-        # Start API server if needed
-        if args.mode in ['api', 'full']:
-            logger.info("Starting API server...")
             
-            # Import API proxy after app is created
-            from api_proxy import app as proxy_app
+            # If video input is provided, configure streaming
+            if args.video_input:
+                logger.info(f"Video input provided: {args.video_input}")
+                setup_video_streaming(args.video_input)
+                
+                # Start video analysis after streaming is set up
+                logger.info("Starting video analysis with Gemini AI...")
+                start_video_analysis(args.video_input)
+            else:
+                logger.info("No video input provided")
+        
+        # Start API server if needed (after RTSP server is running)
+        if args.mode in ['api', 'full'] and proxy_app:
+            logger.info("Starting API server...")
             
             # Run the application
             proxy_app.run(
