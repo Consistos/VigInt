@@ -68,14 +68,20 @@ class AlertManager:
             msg = MIMEMultipart()
             msg['From'] = sender_email
             msg['To'] = admin_email
-            msg['Subject'] = f"🚨 Vigint Alert - {alert_type.upper()}"
             
-            # Enhanced body with incident details
+            # Create subject with incident type if available
+            subject = f"🚨 Vigint Alert - {alert_type.upper()}"
+            if incident_data and incident_data.get('incident_type'):
+                subject = f"🚨 Vigint Alert - {incident_data['incident_type']} - {alert_type.upper()}"
+            
+            msg['Subject'] = subject
+            
+            # Enhanced body with incident details in French
             body = f"""
-🚨 VIGINT SYSTEM ALERT
+🚨 ALERTE SYSTÈME VIGINT
 
-Alert Type: {alert_type.upper()}
-Timestamp: {datetime.now().isoformat()}
+Type d'alerte: {alert_type.upper()}
+Horodatage: {datetime.now().isoformat()}
 
 Message:
 {message}
@@ -85,37 +91,38 @@ Message:
             if incident_data:
                 body += f"""
 
-INCIDENT DETAILS:
-Risk Level: {incident_data.get('risk_level', 'UNKNOWN')}
-Frame Count: {incident_data.get('frame_count', 'N/A')}
-Confidence: {incident_data.get('confidence', 'N/A')}
+DÉTAILS DE L'INCIDENT:
+Niveau de risque: {incident_data.get('risk_level', 'INCONNU')}
+Numéro d'image: {incident_data.get('frame_count', 'N/A')}
+Confiance: {incident_data.get('confidence', 'N/A')}
 """
-                if 'analysis' in incident_data:
+                # Only add analysis if it's not already in the message
+                if 'analysis' in incident_data and incident_data['analysis'] not in message:
                     body += f"""
-AI Analysis:
+Analyse IA:
 {incident_data['analysis']}
 """
             
-            # Add video attachment status
+            # Add video attachment status in French
             if video_path and os.path.exists(video_path):
                 video_size = os.path.getsize(video_path) / (1024 * 1024)  # Size in MB
                 body += f"""
 
-📹 VIDEO EVIDENCE ATTACHED
-File: security_incident_{datetime.now().strftime('%Y%m%d_%H%M%S')}.mp4
-Size: {video_size:.1f} MB
+📹 PREUVES VIDÉO JOINTES
+Fichier: incident_securite_{datetime.now().strftime('%Y%m%d_%H%M%S')}.mp4
+Taille: {video_size:.1f} MB
 """
             else:
                 body += """
 
-⚠️ Video evidence not available
+⚠️ Preuves vidéo non disponibles
 """
             
             body += """
 
 ---
-Vigint Monitoring System
-Please review immediately and take appropriate action.
+Système de surveillance Vigint
+Veuillez examiner immédiatement et prendre les mesures appropriées.
 """
             
             msg.attach(MIMEText(body, 'plain'))
@@ -388,13 +395,16 @@ Please review immediately and take appropriate action.
             if not frames:
                 return None
             
+            # Convert to list to avoid deque mutation issues during iteration
+            frames_list = list(frames)
+            
             # Create temporary file if no output path specified
             if output_path is None:
                 temp_fd, output_path = tempfile.mkstemp(suffix='.mp4', prefix='vigint_incident_')
                 os.close(temp_fd)
             
             # Decode first frame to get dimensions
-            first_frame_data = base64.b64decode(frames[0]['frame_data'])
+            first_frame_data = base64.b64decode(frames_list[0]['frame_data'])
             first_frame = cv2.imdecode(np.frombuffer(first_frame_data, np.uint8), cv2.IMREAD_COLOR)
             
             if first_frame is None:
@@ -413,7 +423,7 @@ Please review immediately and take appropriate action.
             
             # Write frames to video
             frames_written = 0
-            for frame_info in frames:
+            for frame_info in frames_list:
                 try:
                     frame_data = base64.b64decode(frame_info['frame_data'])
                     frame = cv2.imdecode(np.frombuffer(frame_data, np.uint8), cv2.IMREAD_COLOR)

@@ -531,7 +531,7 @@ def generate_incident_video(client_id, incident_analysis=None, buffer_type='long
         
         # Add incident-specific metadata
         result.update({
-            'incident_type': 'security_incident',
+            'incident_type': incident_analysis.get('incident_type', 'security_incident') if incident_analysis else 'security_incident',
             'client_id': client_id,
             'risk_level': risk_level,
             'buffer_type': buffer_type,
@@ -600,12 +600,23 @@ def analyze_frame_for_security(frame_base64, frame_count, buffer_type="short"):
         # Parse JSON response
         try:
             import json
-            analysis_json = json.loads(response.text.strip())
+            response_text = response.text.strip()
+            
+            # Handle JSON wrapped in markdown code blocks
+            if response_text.startswith('```json'):
+                # Extract JSON from markdown code block
+                start_idx = response_text.find('{')
+                end_idx = response_text.rfind('}') + 1
+                if start_idx != -1 and end_idx > start_idx:
+                    response_text = response_text[start_idx:end_idx]
+            
+            analysis_json = json.loads(response_text)
             
             has_security_incident = analysis_json.get('incident_detected', False)
             confidence = analysis_json.get('confidence', 0.0)
             description = analysis_json.get('description', '')
             analysis_text = analysis_json.get('analysis', '')
+            incident_type = analysis_json.get('incident_type', '')
             
             # Map confidence to risk level
             if confidence >= 0.8:
@@ -618,15 +629,28 @@ def analyze_frame_for_security(frame_base64, frame_count, buffer_type="short"):
         except (json.JSONDecodeError, KeyError) as e:
             logger.warning(f"Failed to parse JSON response, falling back to text analysis: {e}")
             analysis_text = response.text
-            has_security_incident = 'incident_detected": true' in analysis_text.lower()
+            analysis_text_lower = analysis_text.lower()
+            has_security_incident = 'incident_detected": true' in analysis_text_lower
             risk_level = "MEDIUM"  # Default risk level
+            
+            # Try to extract incident_type from text
+            incident_type = ""
+            if '"incident_type":' in analysis_text_lower:
+                try:
+                    import re
+                    match = re.search(r'"incident_type":\s*"([^"]*)"', analysis_text)
+                    if match:
+                        incident_type = match.group(1)
+                except Exception:
+                    pass
         
         return {
             'analysis': analysis_text,
             'has_security_incident': has_security_incident,
             'risk_level': risk_level,
             'timestamp': datetime.now().isoformat(),
-            'frame_count': frame_count
+            'frame_count': frame_count,
+            'incident_type': incident_type
         }
         
     except Exception as e:
@@ -1411,7 +1435,7 @@ def analyze_incident_context(frames):
             4. Removing security tags or packaging
             
             Return ONLY a JSON object:
-            {{"incident_detected": boolean, "confidence": float, "description": string, "analysis": string}}
+            {{"incident_detected": boolean, "incident_type": string, "confidence": float, "description": string, "analysis": string}}
             
             Answer in French.
             """
@@ -1424,15 +1448,37 @@ def analyze_incident_context(frames):
             # Parse JSON response
             try:
                 import json
-                analysis_json = json.loads(response.text.strip())
+                response_text = response.text.strip()
+                
+                # Handle JSON wrapped in markdown code blocks
+                if response_text.startswith('```json'):
+                    start_idx = response_text.find('{')
+                    end_idx = response_text.rfind('}') + 1
+                    if start_idx != -1 and end_idx > start_idx:
+                        response_text = response_text[start_idx:end_idx]
+                
+                analysis_json = json.loads(response_text)
                 analysis_text = analysis_json.get('analysis', response.text)
+                incident_type = analysis_json.get('incident_type', '')
+                confidence = analysis_json.get('confidence', 0.0)
             except (json.JSONDecodeError, KeyError):
                 analysis_text = response.text
+                incident_type = ''
+                confidence = 0.0
+                
+                # Try to extract incident_type from text
+                if '"incident_type":' in response.text.lower():
+                    import re
+                    match = re.search(r'"incident_type":\s*"([^"]*)"', response.text)
+                    if match:
+                        incident_type = match.group(1)
             
             context_analysis.append({
                 'frame_position': 'Start' if i == 0 else 'Middle' if i == 1 else 'End',
                 'frame_count': frame_info['frame_count'],
-                'analysis': analysis_text
+                'analysis': analysis_text,
+                'incident_type': incident_type,
+                'confidence': confidence
             })
         
         return context_analysis
@@ -1463,6 +1509,7 @@ def send_security_alert():
         risk_level = data.get('risk_level', 'MEDIUM')
         detailed_analysis = data.get('detailed_analysis', None)
         incident_frames_count = data.get('incident_frames_count', 0)
+        incident_type = data.get('incident_type', '')
         
         # Get client's frame buffer for video creation
         client_buffer = get_client_buffer(request.current_client.id)
@@ -1477,7 +1524,8 @@ def send_security_alert():
                 {
                     'risk_level': risk_level,
                     'analysis': analysis_text,
-                    'frame_count': frame_count
+                    'frame_count': frame_count,
+                    'incident_type': incident_type
                 },
                 buffer_type='long'
             )
@@ -1494,32 +1542,39 @@ def send_security_alert():
         msg = MIMEMultipart()
         msg['From'] = email_config['from_email'] or email_config['username']
         msg['To'] = email_config['to_email']
-        msg['Subject'] = f"🚨 Vigint Security Alert [{risk_level}] - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
         
-        # Create simplified email body
+        # Create subject with incident type if available
+        subject = f"🚨 Vigint Security Alert [{risk_level}]"
+        if incident_type:
+            subject = f"🚨 Vigint Alert - {incident_type} - [{risk_level}]"
+        subject += f" - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+        msg['Subject'] = subject
+        
+        # Create simplified email body in French
         incident_timestamp = datetime.now()
         
         body = f"""
-🚨 VIGINT SECURITY ALERT - {risk_level} RISK
+🚨 ALERTE SÉCURITÉ VIGINT - RISQUE {risk_level}
 
 Client: {request.current_client.name}
-Time: {incident_timestamp.strftime('%Y-%m-%d %H:%M:%S')} UTC
-Risk Level: {risk_level}
+Heure: {incident_timestamp.strftime('%Y-%m-%d %H:%M:%S')} UTC
+Niveau de risque: {risk_level}
+Type d'incident: {incident_type if incident_type else 'Non spécifié'}
 
-ANALYSIS:
+ANALYSE:
 {analysis_text}
 
-This is an automated alert from the Vigint security system.
-Please review the attached video footage immediately.
+Ceci est une alerte automatique du système de sécurité Vigint.
+Veuillez examiner immédiatement les images vidéo ci-jointes.
         """
         
 
         
-        # Add simple video status
+        # Add simple video status in French
         if video_metadata:
-            body += f"\n\nVideo evidence attached ({video_metadata.get('duration_seconds', 0):.1f} seconds)"
+            body += f"\n\nPreuves vidéo jointes ({video_metadata.get('duration_seconds', 0):.1f} secondes)"
         else:
-            body += "\n\nVideo evidence not available"
+            body += "\n\nPreuves vidéo non disponibles"
         
 
         

@@ -265,11 +265,22 @@ class SecureVideoAnalyzer:
                 # Parse response
                 try:
                     import json
-                    analysis_json = json.loads(response.text.strip())
+                    response_text = response.text.strip()
+                    
+                    # Handle JSON wrapped in markdown code blocks
+                    if response_text.startswith('```json'):
+                        # Extract JSON from markdown code block
+                        start_idx = response_text.find('{')
+                        end_idx = response_text.rfind('}') + 1
+                        if start_idx != -1 and end_idx > start_idx:
+                            response_text = response_text[start_idx:end_idx]
+                    
+                    analysis_json = json.loads(response_text)
                     
                     has_security_incident = analysis_json.get('incident_detected', False)
                     confidence = analysis_json.get('confidence', 0.0)
                     analysis_text = analysis_json.get('analysis', response.text)
+                    incident_type = analysis_json.get('incident_type', '')
                     
                     # Map confidence to risk level
                     if confidence >= 0.8:
@@ -286,7 +297,8 @@ class SecureVideoAnalyzer:
                         'confidence': confidence,
                         'frame_count': latest_frame['frame_count'],
                         'timestamp': datetime.now().isoformat(),
-                        'source': 'local_analysis'
+                        'source': 'local_analysis',
+                        'incident_type': incident_type
                     }
                     
                     if has_security_incident:
@@ -298,7 +310,21 @@ class SecureVideoAnalyzer:
                 except (json.JSONDecodeError, KeyError) as e:
                     logger.warning(f"Failed to parse local analysis JSON: {e}")
                     # Fallback to text analysis
-                    has_incident = 'incident_detected": true' in response.text.lower()
+                    response_text = response.text.lower()
+                    has_incident = 'incident_detected": true' in response_text
+                    
+                    # Try to extract incident_type from text
+                    incident_type_fallback = ''
+                    if '"incident_type":' in response_text:
+                        try:
+                            # Try to extract incident_type value
+                            import re
+                            match = re.search(r'"incident_type":\s*"([^"]*)"', response.text)
+                            if match:
+                                incident_type_fallback = match.group(1)
+                        except Exception:
+                            pass
+                    
                     return {
                         'analysis': response.text,
                         'has_security_incident': has_incident,
@@ -306,7 +332,8 @@ class SecureVideoAnalyzer:
                         'confidence': 0.7,
                         'frame_count': latest_frame['frame_count'],
                         'timestamp': datetime.now().isoformat(),
-                        'source': 'local_analysis_fallback'
+                        'source': 'local_analysis_fallback',
+                        'incident_type': incident_type_fallback
                     }
                 
             except ImportError:
@@ -374,7 +401,8 @@ Note: Cette analyse a été effectuée localement en raison de l'indisponibilit�
                 payload = {
                     'analysis': analysis_result['analysis'],
                     'frame_count': analysis_result['frame_count'],
-                    'risk_level': analysis_result.get('risk_level', 'MEDIUM')
+                    'risk_level': analysis_result.get('risk_level', 'MEDIUM'),
+                    'incident_type': analysis_result.get('incident_type', '')
                 }
                 
                 response = requests.post(
@@ -412,22 +440,21 @@ Note: Cette analyse a été effectuée localement en raison de l'indisponibilit�
                 'risk_level': analysis_result.get('risk_level', 'HIGH'),
                 'frame_count': analysis_result.get('frame_count', 0),
                 'confidence': analysis_result.get('confidence', 0.8),
-                'analysis': analysis_result.get('analysis', '')
+                'analysis': analysis_result.get('analysis', ''),
+                'incident_type': analysis_result.get('incident_type', '')
             }
             
-            # Create alert message
+            # Create alert message in French
             message = f"""
-SECURITY INCIDENT DETECTED
+INCIDENT DE SÉCURITÉ DÉTECTÉ
 
-Time: {datetime.now().isoformat()}
-Frame: {analysis_result.get('frame_count', 0)}
-Risk Level: {incident_data['risk_level']}
+Heure: {datetime.now().isoformat()}
+Image: {analysis_result.get('frame_count', 0)}
+Niveau de risque: {incident_data['risk_level']}
+Type d'incident: {incident_data.get('incident_type', 'Non spécifié')}
 
-ANALYSIS:
-{analysis_result.get('analysis', 'Security incident detected')}
-
-This alert was sent using local video alert system.
-Please review the attached video evidence immediately.
+Cet alerte a été envoyée via le système d'alerte vidéo local.
+Veuillez examiner immédiatement les preuves vidéo ci-jointes.
 """
             
             # Send alert with video
@@ -469,14 +496,27 @@ Please review the attached video evidence immediately.
         self.running = True
         self.start_time = time.time()  # Record when streaming started
         
+        # Get video properties for debugging
+        total_frames = cap.get(cv2.CAP_PROP_FRAME_COUNT)
+        fps = cap.get(cv2.CAP_PROP_FPS)
+        logger.info(f"Video properties: {total_frames} frames, {fps} FPS")
+        
         try:
             while self.running:
                 ret, frame = cap.read()
+                current_frame = cap.get(cv2.CAP_PROP_POS_FRAMES)
                 
                 if not ret:
-                    logger.warning("Failed to read frame from stream")
-                    time.sleep(1)
-                    continue
+                    # Check if this is a video file that has ended
+                    if total_frames > 0:
+                        # Video file ended, restart from beginning
+                        logger.info(f"Video file ended at frame {current_frame}/{total_frames}, restarting from beginning...")
+                        cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
+                        continue
+                    else:
+                        logger.warning("Failed to read frame from stream")
+                        time.sleep(1)
+                        continue
                 
                 self.frame_count += 1
                 current_time = time.time()
