@@ -224,6 +224,18 @@ def start_video_analysis(video_path):
     logger.info("Secure video analysis thread started")
 
 
+def check_api_proxy_running():
+    """Check if API proxy is already running on port 5002"""
+    import socket
+    try:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        result = sock.connect_ex(('localhost', 5002))
+        sock.close()
+        return result == 0
+    except Exception:
+        return False
+
+
 def signal_handler(signum, frame):
     """Handle shutdown signals"""
     logger.info(f"Received signal {signum}, shutting down...")
@@ -268,11 +280,18 @@ def main():
         if not initialize_database(app):
             return 1
         
+        # Check if API proxy is already running
+        api_proxy_running = check_api_proxy_running()
+        if api_proxy_running:
+            logger.info("✅ API proxy already running on port 5002")
+        
         # Import API proxy early but don't start it yet
         proxy_app = None
-        if args.mode in ['api', 'full']:
+        if args.mode in ['api', 'full'] and not api_proxy_running:
             logger.info("Importing API proxy...")
             from api_proxy import app as proxy_app
+        elif args.mode in ['api', 'full'] and api_proxy_running:
+            logger.info("Skipping API proxy startup - already running")
         
         # Start RTSP server if needed
         if args.mode in ['rtsp', 'full'] and not args.no_rtsp:
@@ -294,7 +313,7 @@ def main():
                 logger.info("No video input provided")
         
         # Start API server if needed (after RTSP server is running)
-        if args.mode in ['api', 'full'] and proxy_app:
+        if args.mode in ['api', 'full'] and proxy_app and not api_proxy_running:
             logger.info("Starting API server...")
             
             # Run the application
@@ -304,6 +323,8 @@ def main():
                 debug=config.debug,
                 use_reloader=False  # Disable reloader to avoid issues with RTSP server
             )
+        elif args.mode in ['api', 'full'] and api_proxy_running:
+            logger.info("API proxy already running, skipping startup")
         else:
             # If only RTSP mode, just keep the process alive
             logger.info("RTSP-only mode, keeping process alive...")

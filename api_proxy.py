@@ -1543,10 +1543,10 @@ def send_security_alert():
         msg['From'] = email_config['from_email'] or email_config['username']
         msg['To'] = email_config['to_email']
         
-        # Create subject with incident type if available
-        subject = f"🚨 Vigint Security Alert [{risk_level}]"
+        # Create subject with incident type if available (in French)
+        subject = f"🚨 Alerte Sécurité Vigint [{risk_level}]"
         if incident_type:
-            subject = f"🚨 Vigint Alert - {incident_type} - [{risk_level}]"
+            subject = f"🚨 Alerte Vigint - {incident_type} - [{risk_level}]"
         subject += f" - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
         msg['Subject'] = subject
         

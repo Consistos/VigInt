@@ -54,12 +54,12 @@ class AlertManager:
     def send_email_alert(self, message, alert_type="info", video_path=None, incident_data=None):
         """Send email alert with optional video attachment"""
         try:
-            # Email configuration for alerts (different from billing)
-            smtp_server = os.getenv('ALERT_SMTP_SERVER') or self.config.get('Alerts', 'smtp_server', 'smtp.gmail.com')
-            smtp_port = int(os.getenv('ALERT_SMTP_PORT') or self.config.get('Alerts', 'smtp_port', '587'))
-            sender_email = os.getenv('ALERT_EMAIL') or self.config.get('Alerts', 'sender_email', 'alerts@vigint.com')
-            sender_password = os.getenv('ALERT_EMAIL_PASSWORD') or self.config.get('Alerts', 'sender_password', '')
-            admin_email = os.getenv('ADMIN_EMAIL') or self.config.get('Alerts', 'admin_email', 'admin@vigint.com')
+            # Email configuration for alerts (consolidated with Email section)
+            smtp_server = os.getenv('ALERT_SMTP_SERVER') or self.config.get('Email', 'smtp_server', 'smtp.gmail.com')
+            smtp_port = int(os.getenv('ALERT_SMTP_PORT') or self.config.get('Email', 'smtp_port', '587'))
+            sender_email = os.getenv('ALERT_EMAIL') or self.config.get('Email', 'sender_email', 'alerts@vigint.com')
+            sender_password = os.getenv('ALERT_EMAIL_PASSWORD') or self.config.get('Email', 'sender_password', '')
+            admin_email = os.getenv('ADMIN_EMAIL') or self.config.get('Email', 'admin_email', 'admin@vigint.com')
             
             if not sender_password:
                 return {"success": False, "error": "No alert email password configured"}
@@ -69,10 +69,10 @@ class AlertManager:
             msg['From'] = sender_email
             msg['To'] = admin_email
             
-            # Create subject with incident type if available
-            subject = f"🚨 Vigint Alert - {alert_type.upper()}"
+            # Create subject with incident type if available (in French)
+            subject = f"🚨 Alerte Vigint - {alert_type.upper()}"
             if incident_data and incident_data.get('incident_type'):
-                subject = f"🚨 Vigint Alert - {incident_data['incident_type']} - {alert_type.upper()}"
+                subject = f"🚨 Alerte Vigint - {incident_data['incident_type']} - {alert_type.upper()}"
             
             msg['Subject'] = subject
             
