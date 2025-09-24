@@ -54,12 +54,29 @@ class AlertManager:
     def send_email_alert(self, message, alert_type="info", video_path=None, incident_data=None):
         """Send email alert with optional video attachment"""
         try:
-            # Email configuration for alerts (consolidated with Email section)
-            smtp_server = os.getenv('ALERT_SMTP_SERVER') or self.config.get('Email', 'smtp_server', 'smtp.gmail.com')
-            smtp_port = int(os.getenv('ALERT_SMTP_PORT') or self.config.get('Email', 'smtp_port', '587'))
-            sender_email = os.getenv('ALERT_EMAIL') or self.config.get('Email', 'sender_email', 'alerts@vigint.com')
-            sender_password = os.getenv('ALERT_EMAIL_PASSWORD') or self.config.get('Email', 'sender_password', '')
-            admin_email = os.getenv('ADMIN_EMAIL') or self.config.get('Email', 'admin_email', 'admin@vigint.com')
+            # Email configuration for alerts (check both Email and Alerts sections)
+            smtp_server = (os.getenv('ALERT_SMTP_SERVER') or 
+                          self.config.get('Alerts', 'smtp_server', None) or 
+                          self.config.get('Email', 'smtp_server', 'smtp.gmail.com'))
+            
+            smtp_port = int(os.getenv('ALERT_SMTP_PORT') or 
+                           self.config.get('Alerts', 'smtp_port', None) or 
+                           self.config.get('Email', 'smtp_port', '587'))
+            
+            sender_email = (os.getenv('ALERT_EMAIL') or 
+                           self.config.get('Alerts', 'sender_email', None) or 
+                           self.config.get('Email', 'sender_email', None) or
+                           self.config.get('Email', 'from_email', 'alerts@vigint.com'))
+            
+            sender_password = (os.getenv('ALERT_EMAIL_PASSWORD') or 
+                              self.config.get('Alerts', 'sender_password', None) or 
+                              self.config.get('Email', 'sender_password', None) or
+                              self.config.get('Email', 'password', ''))
+            
+            admin_email = (os.getenv('ADMIN_EMAIL') or 
+                          self.config.get('Alerts', 'admin_email', None) or 
+                          self.config.get('Email', 'admin_email', None) or
+                          self.config.get('Email', 'to_email', 'admin@vigint.com'))
             
             if not sender_password:
                 return {"success": False, "error": "No alert email password configured"}
@@ -413,12 +430,26 @@ Veuillez examiner immédiatement et prendre les mesures appropriées.
             
             height, width, _ = first_frame.shape
             
-            # Create video writer
-            fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-            out = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
+            # Create video writer with better codec settings
+            # Try different codecs for better compatibility
+            codecs_to_try = [
+                cv2.VideoWriter_fourcc(*'mp4v'),
+                cv2.VideoWriter_fourcc(*'XVID'),
+                cv2.VideoWriter_fourcc(*'H264'),
+                cv2.VideoWriter_fourcc(*'avc1')
+            ]
             
-            if not out.isOpened():
-                logger.error("Failed to create video writer")
+            out = None
+            for fourcc in codecs_to_try:
+                out = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
+                if out.isOpened():
+                    logger.info(f"Video writer created successfully with codec: {fourcc}")
+                    break
+                else:
+                    out.release()
+            
+            if out is None or not out.isOpened():
+                logger.error("Failed to create video writer with any codec")
                 return None
             
             # Write frames to video

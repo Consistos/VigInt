@@ -1,0 +1,84 @@
+{
+  "version": "1.0",
+  "created_at": "2025-09-23T14:50:59.903006",
+  "analysis_settings": {
+    "analysis_interval": 10,
+    "aggregation_threshold": 4,
+    "max_concurrent_analyses": 4,
+    "frame_buffer_duration": 10
+  },
+  "video_sources": {
+    "quick_source_1": {
+      "source_id": "quick_source_1",
+      "rtsp_url": "/Users/david2/Downloads/security_incident_VIG-20250825-931-MEDIUM.mp4",
+      "name": "Camera_1",
+      "enabled": true,
+      "location": "",
+      "description": "Quick start source",
+      "priority": "normal",
+      "analysis_enabled": true,
+      "alert_enabled": true,
+      "recording_enabled": false,
+      "created_at": "2025-09-23T15:58:46.278747",
+      "tags": []
+    },
+    "quick_source_2": {
+      "source_id": "quick_source_2",
+      "rtsp_url": "/Users/david2/Downloads/security_incident_VIG-20250825-931-MEDIUM.mp4",
+      "name": "Camera_2",
+      "enabled": true,
+      "location": "",
+      "description": "Quick start source",
+      "priority": "normal",
+      "analysis_enabled": true,
+      "alert_enabled": true,
+      "recording_enabled": false,
+      "created_at": "2025-09-23T15:58:46.279140",
+      "tags": []
+    },
+    "quick_source_3": {
+      "source_id": "quick_source_3",
+      "rtsp_url": "/Users/david2/Downloads/security_incident_VIG-20250825-931-MEDIUM.mp4",
+      "name": "Camera_3",
+      "enabled": true,
+      "location": "",
+      "description": "Quick start source",
+      "priority": "normal",
+      "analysis_enabled": true,
+      "alert_enabled": true,
+      "recording_enabled": false,
+      "created_at": "2025-09-23T15:58:46.279294",
+      "tags": []
+    },
+    "quick_source_4": {
+      "source_id": "quick_source_4",
+      "rtsp_url": "/Users/david2/Downloads/security_incident_V",
+      "name": "Camera_4",
+      "enabled": true,
+      "location": "",
+      "description": "Quick start source",
+      "priority": "normal",
+      "analysis_enabled": true,
+      "alert_enabled": true,
+      "recording_enabled": false,
+      "created_at": "2025-09-23T15:58:46.279436",
+      "tags": []
+    },
+    "quick_source_5": {
+      "source_id": "quick_source_5",
+      "rtsp_url": "buffer_video_5.mp4",
+      "name": "Office",
+      "enabled": true,
+      "location": "",
+      "description": "Quick start source",
+      "priority": "normal",
+      "analysis_enabled": true,
+      "alert_enabled": true,
+      "recording_enabled": false,
+      "created_at": "2025-09-23T14:50:59.903714",
+      "tags": []
+    }
+  },
+  "source_groups": {},
+  "last_updated": "2025-09-23T15:58:46.279438"
+}
