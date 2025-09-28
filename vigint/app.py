@@ -237,7 +237,10 @@ class SecureVideoAnalyzer:
                     return self._create_mock_analysis_result(latest_frame)
                 
                 # Configure Gemini for local analysis
-                genai.configure(api_key=gemini_api_key)
+                genai.configure(
+                    api_key=gemini_api_key,
+                    transport='rest'
+                )
                 model = genai.GenerativeModel('gemini-1.5-flash')
                 
                 # Analyze the frame

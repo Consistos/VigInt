@@ -167,7 +167,10 @@ class MultiSourceVideoAnalyzer:
         # Configure Gemini AI
         self.gemini_api_key = api_key or os.getenv('GOOGLE_API_KEY')
         if self.gemini_api_key:
-            genai.configure(api_key=self.gemini_api_key)
+            genai.configure(
+                api_key=self.gemini_api_key,
+                transport='rest'
+            )
             self.model = genai.GenerativeModel('gemini-1.5-flash')
             logger.info("Gemini AI configured successfully")
         else:

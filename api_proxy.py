@@ -45,7 +45,10 @@ werkzeug_logger.setLevel(logging.WARNING)
 # Configure Gemini AI (server-side only)
 gemini_api_key = config.gemini_api_key
 if gemini_api_key:
-    genai.configure(api_key=gemini_api_key)
+    genai.configure(
+        api_key=gemini_api_key,
+        transport='rest'
+    )
     gemini_model = genai.GenerativeModel('gemini-1.5-flash')
     logger.info("Gemini AI configured on server")
 else:
@@ -1580,87 +1583,75 @@ Veuillez examiner immédiatement les images vidéo ci-jointes.
         
         msg.attach(MIMEText(body, 'plain'))
         
-        # Enhanced video attachment with compression and proper MIME handling
-        video_attached = False
-        attachment_error = None
-        compression_info = None
-        final_video_path = video_path
+        # Upload video to sparse-ai.com and add private link to email
+        video_link_info = None
+        video_link_error = None
         
         if video_path and os.path.exists(video_path):
             try:
-                # Check file size and compress if needed
-                file_size = os.path.getsize(video_path)
-                max_attachment_size = 20 * 1024 * 1024  # 20MB limit (conservative)
+                from video_link_service import VideoLinkService
+                video_service = VideoLinkService()
                 
-                if file_size > max_attachment_size:
-                    logger.info(f"Video file ({file_size / (1024*1024):.1f} MB) exceeds limit, attempting compression")
-                    
-                    # Attempt video compression with configured settings
-                    compression_result = compress_video_for_email(
-                        video_path, 
-                        max_size_mb=video_config['max_email_size_mb'],
-                        quality_reduction=video_config['compression_quality']
-                    )
-                    
-                    if compression_result['success']:
-                        final_video_path = compression_result['compressed_path']
-                        compression_info = compression_result
-                        logger.info(f"Video compressed successfully: {compression_result['original_size_mb']:.1f} MB → {compression_result['final_size_mb']:.1f} MB")
-                        
-                        # Check if compressed video is still too large
-                        max_size = video_config['max_email_size_mb']
-                        if compression_result['final_size_mb'] > max_size:
-                            attachment_error = f"Video still too large after compression ({compression_result['final_size_mb']:.1f} MB > {max_size} MB limit)"
-                            final_video_path = None
-                    else:
-                        attachment_error = f"Video compression failed: {compression_result.get('error', 'Unknown error')}"
-                        final_video_path = None
+                # Prepare incident data for upload
+                incident_data_for_upload = {
+                    'incident_type': incident_type,
+                    'risk_level': risk_level,
+                    'analysis': analysis_text,
+                    'frame_count': frame_count,
+                    'confidence': 0.8 if risk_level == 'HIGH' else 0.6 if risk_level == 'MEDIUM' else 0.4
+                }
                 
-                if final_video_path and os.path.exists(final_video_path):
-                    with open(final_video_path, 'rb') as video_file:
-                        # Use proper MIME type for video
-                        video_format = video_config['video_format'].lower()
-                        mime_types = {
-                            'mp4': ('video', 'mp4'),
-                            'avi': ('video', 'x-msvideo'),
-                            'mov': ('video', 'quicktime'),
-                            'mkv': ('video', 'x-matroska')
-                        }
-                        
-                        main_type, sub_type = mime_types.get(video_format, ('application', 'octet-stream'))
-                        video_attachment = MIMEBase(main_type, sub_type)
-                        video_attachment.set_payload(video_file.read())
-                        encoders.encode_base64(video_attachment)
-                        
-                        # Create descriptive filename with incident details
-                        incident_id = f"VIG-{incident_timestamp.strftime('%Y%m%d')}-{frame_count}-{risk_level}"
-                        filename = f"security_incident_{incident_id}.{video_format}"
-                        
-                        video_attachment.add_header(
-                            'Content-Disposition',
-                            f'attachment; filename="{filename}"'
-                        )
-                        video_attachment.add_header(
-                            'Content-Description', 
-                            f'Vigint Security Incident Video - {risk_level} Risk'
-                        )
-                        
-                        msg.attach(video_attachment)
-                        video_attached = True
-                        
-                        final_file_size = os.path.getsize(final_video_path) / (1024*1024)
-                        compression_note = f" (compressed from {compression_info['original_size_mb']:.1f} MB)" if compression_info and compression_info['compressed'] else ""
-                        logger.info(f"Video attachment added to email: {filename} ({final_file_size:.1f} MB{compression_note})")
-                        
+                # Upload video and get private link (48 hour expiration for security incidents)
+                upload_result = video_service.upload_video(
+                    video_path, 
+                    incident_data_for_upload, 
+                    expiration_hours=48
+                )
+                
+                if upload_result['success']:
+                    video_link_info = upload_result
+                    video_size = os.path.getsize(video_path) / (1024 * 1024)  # Size in MB
+                    
+                    # Add video link to email body
+                    body += f"""
+
+📹 PREUVES VIDÉO DISPONIBLES
+Lien privé sécurisé: {upload_result['private_link']}
+Taille du fichier: {video_size:.1f} MB
+Expiration: {upload_result['expiration_time']}
+ID Vidéo: {upload_result['video_id']}
+
+⚠️ IMPORTANT: Ce lien est privé et sécurisé. Il expirera automatiquement dans 48 heures.
+Cliquez sur le lien pour visualiser la vidéo de l'incident.
+"""
+                    logger.info(f"Video uploaded to sparse-ai.com: {upload_result['video_id']} ({video_size:.1f} MB)")
+                else:
+                    video_link_error = upload_result.get('error', 'Unknown upload error')
+                    body += f"""
+
+⚠️ Échec du téléchargement de la vidéo
+Erreur: {video_link_error}
+La vidéo n'est pas disponible en ligne.
+"""
+                    logger.error(f"Failed to upload video to sparse-ai.com: {video_link_error}")
+                    
             except Exception as e:
-                attachment_error = str(e)
-                logger.error(f"Failed to attach video: {e}")
-                
-                # Update email body to indicate attachment failure
-                body += f"\n\n⚠️ Video attachment failed: {attachment_error}"
+                video_link_error = str(e)
+                logger.error(f"Error uploading video to sparse-ai.com: {e}")
+                body += f"""
+
+⚠️ Erreur lors du téléchargement de la vidéo
+Erreur technique: {video_link_error}
+La vidéo n'est pas disponible en ligne.
+"""
+        else:
+            body += """
+
+⚠️ Preuves vidéo non disponibles
+"""
         
         # Send email with robust error handling and retry mechanisms
-        email_result = send_email_with_retry(msg, video_attached, attachment_error)
+        email_result = send_email_with_retry(msg, video_link_info is not None, video_link_error)
         
         # Handle email delivery results
         if email_result['success']:
@@ -1671,26 +1662,13 @@ Veuillez examiner immédiatement les images vidéo ci-jointes.
         else:
             logger.error(f"Failed to send security alert for client {request.current_client.name}: {email_result.get('last_error', 'Unknown error')}")
         
-        # Clean up temporary video files using secure cleanup
-        cleanup_results = []
-        
-        # Clean up original video file
+        # Clean up temporary video file after upload
         if video_path:
             cleanup_success = cleanup_temp_file(video_path)
-            cleanup_results.append(('original', cleanup_success))
             if cleanup_success:
-                logger.info("Original temporary video file cleaned up securely")
+                logger.info("Temporary video file cleaned up securely after upload")
             else:
-                logger.warning("Failed to clean up original video file securely")
-        
-        # Clean up compressed video file if it was created
-        if compression_info and compression_info.get('compressed', False) and compression_info.get('compressed_path'):
-            compressed_cleanup = cleanup_temp_file(compression_info['compressed_path'])
-            cleanup_results.append(('compressed', compressed_cleanup))
-            if compressed_cleanup:
-                logger.info("Compressed temporary video file cleaned up securely")
-            else:
-                logger.warning("Failed to clean up compressed video file securely")
+                logger.warning("Failed to clean up temporary video file after upload")
         
         # Calculate cost (include retry overhead if applicable)
         processing_time = time.time() - start_time
@@ -1732,13 +1710,15 @@ Veuillez examiner immédiatement les images vidéo ci-jointes.
                 'analysis_fps': video_config['analysis_fps'],
                 'buffer_utilization': (len(client_buffer) / (video_config['long_buffer_duration'] * video_config['analysis_fps']) * 100) if len(client_buffer) > 0 else 0
             },
-            'video_attachment': {
-                'attached': video_attached,
-                'error': attachment_error,
-                'metadata': video_metadata if video_attached else None,
+            'video_link': {
+                'available': video_link_info is not None,
+                'private_link': video_link_info['private_link'] if video_link_info else None,
+                'video_id': video_link_info['video_id'] if video_link_info else None,
+                'expiration_time': video_link_info['expiration_time'] if video_link_info else None,
+                'error': video_link_error,
+                'metadata': video_metadata,
                 'quality_rating': "High" if video_metadata and video_metadata.get('failed_frames', 0) == 0 else "Good" if video_metadata and video_metadata.get('failed_frames', 0) < 5 else "Fair",
-                'compression': compression_info if compression_info else None,
-                'final_size_mb': compression_info['final_size_mb'] if compression_info else (os.path.getsize(video_path) / (1024*1024) if video_path and os.path.exists(video_path) else 0)
+                'file_size_mb': os.path.getsize(video_path) / (1024*1024) if video_path and os.path.exists(video_path) else 0
             },
             'email_delivery': {
                 'success': email_result['success'],
