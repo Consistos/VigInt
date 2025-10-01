@@ -12,6 +12,17 @@ A comprehensive platform providing RTSP video streaming and automated billing se
 - **Recording Capabilities**
 - **Built-in Metrics & Monitoring**
 
+### Video Security Alerts
+- **AI-Powered Incident Detection** using Gemini AI
+- **Private Video Links** instead of email attachments
+- **Secure Video Hosting** on sparse-ai.com
+- **Automatic Link Expiration** for enhanced security
+- **Frame Buffer Management** for incident context
+- **Multi-language Support** (French alerts)
+- **Automatic Cleanup** of old incident files (30-day retention)
+- **Offline Mode** with local fallback storage
+- **Incident Deduplication** to prevent spam (60s cooldown)
+
 ### Billing System
 - **Automated Invoice Generation** (weekly/monthly/quarterly)
 - **Multiple Payment Methods** (credit cards, bank transfers, direct debit)
@@ -88,6 +99,7 @@ python3 start_vigint.py --mode full
 
 - **[RTSP Server Guide](README_RTSP.md)** - Complete RTSP streaming documentation
 - **[Billing System Guide](README_BILLING.md)** - Billing and payment processing documentation
+- **[Video Link Service Setup](VIDEO_LINK_SERVICE_SETUP.md)** - Private video links for security alerts
 
 ## 🔧 Configuration
 
@@ -107,6 +119,12 @@ smtp_server = smtp.gmail.com
 smtp_port = 587
 sender_email = your-email@example.com
 sender_password = your-app-password
+
+[SparseAI]
+# Video hosting for security alerts
+api_key = your-sparse-ai-api-key
+base_url = https://sparse-ai.com
+default_expiration_hours = 48
 
 [Stripe]
 api_key = sk_test_your_stripe_key
@@ -139,6 +157,41 @@ curl -H "X-API-Key: your-api-key" \
 
 # Stream URL format
 rtsp://localhost:8554/stream_name
+```
+
+### Video Security Alerts
+
+```bash
+# Send security alert with video frames
+curl -X POST http://localhost:5000/api/video/alert \
+  -H "X-API-Key: your-api-key" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "analysis": "Security incident detected",
+    "risk_level": "HIGH",
+    "incident_type": "shoplifting",
+    "frame_count": 150
+  }'
+```
+
+**New Feature**: Videos are now uploaded to sparse-ai.com and private links are sent via email instead of large attachments.
+
+```python
+# Python usage
+from alerts import send_security_alert_with_video
+
+result = send_security_alert_with_video(
+    message="Security incident detected",
+    frames=frame_buffer,  # Your video frames
+    incident_data={
+        'incident_type': 'shoplifting',
+        'risk_level': 'HIGH',
+        'analysis': 'Customer concealing merchandise'
+    }
+)
+
+# Email will contain private link like:
+# https://sparse-ai.com/video/abc123?token=xyz789
 ```
 
 ### Usage Monitoring

@@ -10,7 +10,7 @@
   "video_sources": {
     "quick_source_1": {
       "source_id": "quick_source_1",
-      "rtsp_url": "/Users/david2/Downloads/security_incident_VIG-20250825-931-MEDIUM.mp4",
+      "rtsp_url": "buffer_video_1.mp4",
       "name": "Camera_1",
       "enabled": true,
       "location": "",
@@ -19,12 +19,12 @@
       "analysis_enabled": true,
       "alert_enabled": true,
       "recording_enabled": false,
-      "created_at": "2025-09-23T15:58:46.278747",
+      "created_at": "2025-09-24T11:02:48.279115",
       "tags": []
     },
     "quick_source_2": {
       "source_id": "quick_source_2",
-      "rtsp_url": "/Users/david2/Downloads/security_incident_VIG-20250825-931-MEDIUM.mp4",
+      "rtsp_url": "buffer_video_2.mp4",
       "name": "Camera_2",
       "enabled": true,
       "location": "",
@@ -33,12 +33,12 @@
       "analysis_enabled": true,
       "alert_enabled": true,
       "recording_enabled": false,
-      "created_at": "2025-09-23T15:58:46.279140",
+      "created_at": "2025-09-24T11:02:48.279771",
       "tags": []
     },
     "quick_source_3": {
       "source_id": "quick_source_3",
-      "rtsp_url": "/Users/david2/Downloads/security_incident_VIG-20250825-931-MEDIUM.mp4",
+      "rtsp_url": "buffer_video_3.mp4",
       "name": "Camera_3",
       "enabled": true,
       "location": "",
@@ -47,12 +47,12 @@
       "analysis_enabled": true,
       "alert_enabled": true,
       "recording_enabled": false,
-      "created_at": "2025-09-23T15:58:46.279294",
+      "created_at": "2025-09-24T11:02:48.279926",
       "tags": []
     },
     "quick_source_4": {
       "source_id": "quick_source_4",
-      "rtsp_url": "/Users/david2/Downloads/security_incident_V",
+      "rtsp_url": "buffer_video_4.mp4",
       "name": "Camera_4",
       "enabled": true,
       "location": "",
@@ -61,7 +61,7 @@
       "analysis_enabled": true,
       "alert_enabled": true,
       "recording_enabled": false,
-      "created_at": "2025-09-23T15:58:46.279436",
+      "created_at": "2025-09-24T11:02:48.280072",
       "tags": []
     },
     "quick_source_5": {
@@ -80,5 +80,5 @@
     }
   },
   "source_groups": {},
-  "last_updated": "2025-09-23T15:58:46.279438"
+  "last_updated": "2025-09-24T11:02:48.280074"
 }

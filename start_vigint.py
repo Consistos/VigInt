@@ -260,10 +260,12 @@ def setup_video_streaming(video_path):
             
             logger.info(f"Starting FFmpeg stream to {rtsp_url}")
             
-            # Try to start FFmpeg streaming
+            # Try to start FFmpeg streaming with proper re-encoding for RTSP
             cmd = [
                 'ffmpeg', '-re', '-stream_loop', '-1', '-i', video_path,
-                '-c', 'copy', '-f', 'rtsp', rtsp_url
+                '-c:v', 'libx264', '-preset', 'ultrafast', '-tune', 'zerolatency',
+                '-c:a', 'aac', '-ar', '44100', '-b:a', '128k',
+                '-f', 'rtsp', '-rtsp_transport', 'tcp', rtsp_url
             ]
             
             logger.info(f"FFmpeg command: {' '.join(cmd)}")
@@ -303,7 +305,8 @@ def setup_video_streaming(video_path):
             try:
                 simple_cmd = [
                     'ffmpeg', '-re', '-i', video_path,
-                    '-c', 'copy', '-f', 'rtsp', rtsp_url
+                    '-c:v', 'libx264', '-preset', 'ultrafast',
+                    '-c:a', 'aac', '-f', 'rtsp', rtsp_url
                 ]
                 logger.info(f"Simple FFmpeg command: {' '.join(simple_cmd)}")
                 simple_process = subprocess.Popen(

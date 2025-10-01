@@ -183,6 +183,11 @@ class MultiSourceVideoAnalyzer:
         self.running = False
         self.analysis_thread = None
         
+        # Incident deduplication tracking
+        self.last_incident_time = {}
+        self.incident_cooldown = 60  # Don't re-alert for 60 seconds after an incident
+        self.last_incident_hash = {}
+        
         # Thread pool for parallel analysis
         self.executor = ThreadPoolExecutor(max_workers=4)
     
@@ -620,6 +625,29 @@ class MultiSourceVideoAnalyzer:
             logger.warning("🚨 POTENTIAL SECURITY EVENT DETECTED!")
             logger.warning(f"Analysis: {analysis_result['analysis'][:200]}...")
             
+            # Create incident signature for deduplication
+            if analysis_result.get('is_aggregated', False):
+                incident_key = f"group_{analysis_result.get('group_name', 'unknown')}"
+            else:
+                incident_key = f"source_{analysis_result.get('source_id', 'unknown')}"
+            
+            incident_signature = f"{analysis_result.get('incident_type', 'unknown')}_{analysis_result.get('analysis', '')[:50]}"
+            
+            # Check if this is a duplicate incident (deduplication)
+            current_time = time.time()
+            last_time = self.last_incident_time.get(incident_key, 0)
+            last_hash = self.last_incident_hash.get(incident_key, None)
+            
+            if (current_time - last_time < self.incident_cooldown and last_hash == incident_signature):
+                logger.info(f"⏭️  Skipping duplicate incident alert for {incident_key}")
+                logger.info(f"   Time since last alert: {current_time - last_time:.1f}s / {self.incident_cooldown}s cooldown")
+                return
+            
+            # Update incident tracking
+            self.last_incident_time[incident_key] = current_time
+            self.last_incident_hash[incident_key] = incident_signature
+            logger.info(f"📧 Sending NEW incident alert for {incident_key} (cooldown active for next {self.incident_cooldown}s)")
+            
             # Collect video frames from relevant sources
             video_frames = []
             
@@ -689,6 +717,7 @@ Veuillez examiner immédiatement les preuves vidéo ci-jointes.
                 result = send_security_alert_with_video(message, video_frames, incident_data)
                 if result.get('success', False):
                     logger.info("🚨 MULTI-SOURCE SECURITY ALERT WITH VIDEO SENT!")
+                    logger.info(f"   Alert will not repeat for same incident for {self.incident_cooldown}s")
                 else:
                     logger.error(f"Failed to send security alert: {result.get('error', 'Unknown error')}")
             else:

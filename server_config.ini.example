@@ -8,6 +8,8 @@ secret_key = your-production-secret-key-here
 debug = false
 host = 0.0.0.0
 port = 8000
+proxy_url = http://your-proxy-server:8080
+proxy_enabled = false
 
 [Email]
 # Production email configuration
@@ -42,3 +44,21 @@ backup_count = 10
 # Monitoring and alerting (optional)
 sentry_dsn = your-sentry-dsn-here
 datadog_api_key = your-datadog-api-key-here
+
+[RTSP]
+# RTSP server configuration
+server_url = rtsp://your-rtsp-server:8554
+server_port = 8554
+auth_enabled = true
+username = your-rtsp-username
+password = your-rtsp-password
+stream_base_path = /
+recording_enabled = false
+max_connections = 50
+
+[SparseAI]
+# Sparse AI video hosting service configuration
+# Used for uploading incident videos and generating private links
+api_key = your-sparse-ai-api-key-here
+base_url = https://sparse-ai.com
+default_expiration_hours = 24

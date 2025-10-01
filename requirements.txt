@@ -1,0 +1,35 @@
+# Core dependencies
+Flask==2.3.3
+Flask-SQLAlchemy==3.0.5
+SQLAlchemy==2.0.21
+
+# Database drivers
+psycopg2-binary==2.9.7  # PostgreSQL
+PyMySQL==1.1.0          # MySQL
+
+# Payment processing
+stripe==6.6.0
+
+# Email
+smtplib2==0.2.1
+
+# HTTP requests
+requests==2.31.0
+
+# Configuration
+configparser==6.0.0
+
+# Utilities
+python-dateutil==2.8.2
+
+# Video analysis dependencies
+opencv-python==4.8.1.78
+numpy==1.24.3
+google-generativeai==0.3.2
+PyGObject==3.46.0  # For GStreamer bindings
+
+# Development dependencies (optional)
+pytest==7.4.2
+pytest-flask==1.2.0
+black==23.9.1
+flake8==6.1.0

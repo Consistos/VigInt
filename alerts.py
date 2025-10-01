@@ -25,6 +25,8 @@ class AlertManager:
     
     def __init__(self):
         self.config = config
+        self.last_cleanup_time = 0
+        self.cleanup_interval = 24 * 60 * 60  # Run cleanup once per day
         
     def send_alert(self, message, alert_type="info", channels=None):
         """Send alert through multiple channels"""
@@ -53,6 +55,9 @@ class AlertManager:
     
     def send_email_alert(self, message, alert_type="info", video_path=None, incident_data=None):
         """Send email alert with private video link instead of attachment"""
+        # Run periodic cleanup of old incident files
+        self._periodic_cleanup()
+        
         try:
             # Email configuration for alerts (check both Email and Alerts sections)
             smtp_server = (os.getenv('ALERT_SMTP_SERVER') or 
@@ -130,21 +135,12 @@ Analyse IA:
                 
                 body += f"""
 
-📹 PREUVES VIDÉO DISPONIBLES (CONFORME RGPD)
-🎬 CRÉÉ AVEC LE SYSTÈME DUAL-BUFFER RÉVOLUTIONNAIRE
-
 🔗 LIEN VIDÉO PRIVÉ SÉCURISÉ:
 {upload_result['private_link']}
 
 💾 Taille: {upload_result.get('video_size_mb', 'N/A')} MB
 🆔 ID Vidéo: {upload_result['video_id']}
 ⏰ Expiration: {upload_result['expiration_time']}
-
-🎯 QUALITÉ VIDÉO RÉVOLUTIONNAIRE:
-✅ Vidéo fluide 25 FPS (pas d'images saccadées comme avant!)
-✅ Footage continu sans interruptions ni gaps
-✅ Qualité professionnelle pour preuves de sécurité
-✅ Architecture dual-buffer innovante
 
 🔒 ACCÈS SÉCURISÉ:
 Cliquez sur le lien ci-dessus pour visualiser la vidéo de l'incident.
@@ -237,24 +233,172 @@ Veuillez examiner immédiatement et prendre les mesures appropriées.
             
             msg.attach(MIMEText(body, 'plain'))
             
-            # Send email
-            server = smtplib.SMTP(smtp_server, smtp_port)
-            server.starttls()
-            server.login(sender_email, sender_password)
-            server.send_message(msg)
-            server.quit()
+            # Send email with retry logic for robustness
+            max_retries = 3
+            retry_delay = 2
+            last_error = None
             
-            logger.info(f"Alert email sent to {admin_email} (video link: {video_link_info is not None})")
+            for attempt in range(max_retries):
+                try:
+                    logger.info(f"Attempting to send email (attempt {attempt + 1}/{max_retries})...")
+                    
+                    # Create SMTP connection with timeout
+                    server = smtplib.SMTP(smtp_server, smtp_port, timeout=30)
+                    server.set_debuglevel(0)  # Disable debug output
+                    
+                    # Use STARTTLS for secure connection
+                    try:
+                        server.starttls()
+                    except Exception as tls_error:
+                        logger.warning(f"STARTTLS failed, trying without TLS: {tls_error}")
+                        # Reconnect without STARTTLS
+                        server.quit()
+                        server = smtplib.SMTP(smtp_server, smtp_port, timeout=30)
+                    
+                    # Login and send
+                    server.login(sender_email, sender_password)
+                    server.send_message(msg)
+                    server.quit()
+                    
+                    logger.info(f"✅ Alert email sent successfully to {admin_email} (video link: {video_link_info is not None})")
+                    return {
+                        "success": True, 
+                        "video_link_provided": video_link_info is not None,
+                        "video_link_info": video_link_info,
+                        "recipient": admin_email,
+                        "attempts": attempt + 1
+                    }
+                    
+                except (smtplib.SMTPException, ConnectionError, OSError) as smtp_error:
+                    last_error = smtp_error
+                    logger.warning(f"Email attempt {attempt + 1} failed: {smtp_error}")
+                    
+                    # Clean up server connection
+                    try:
+                        server.quit()
+                    except:
+                        pass
+                    
+                    # Retry with delay if not last attempt
+                    if attempt < max_retries - 1:
+                        import time
+                        time.sleep(retry_delay)
+                        retry_delay *= 2  # Exponential backoff
+                    else:
+                        logger.error(f"❌ All {max_retries} email attempts failed")
+            
+            # All retries failed - save incident to file as fallback
+            logger.error(f"❌ Email sending failed completely - saving incident to local file")
+            self._save_incident_to_file(message, alert_type, incident_data)
+            
             return {
-                "success": True, 
-                "video_link_provided": video_link_info is not None,
-                "video_link_info": video_link_info,
-                "recipient": admin_email
+                "success": False, 
+                "error": f"Failed after {max_retries} attempts: {str(last_error)}",
+                "attempts": max_retries,
+                "fallback": "incident_saved_to_file"
             }
             
         except Exception as e:
             logger.error(f"Error sending email alert: {e}")
-            return {"success": False, "error": str(e)}
+            self._save_incident_to_file(message, alert_type, incident_data)
+            return {"success": False, "error": str(e), "fallback": "incident_saved_to_file"}
+    
+    def _periodic_cleanup(self):
+        """Run periodic cleanup of old incident files (once per day)"""
+        try:
+            import time
+            current_time = time.time()
+            
+            # Check if it's time to run cleanup (once per day)
+            if current_time - self.last_cleanup_time < self.cleanup_interval:
+                return
+            
+            self.last_cleanup_time = current_time
+            
+            # Run cleanup in background to avoid blocking alerts
+            import threading
+            cleanup_thread = threading.Thread(target=self._run_cleanup, daemon=True)
+            cleanup_thread.start()
+            
+        except Exception as e:
+            logger.error(f"Error scheduling cleanup: {e}")
+    
+    def _run_cleanup(self):
+        """Run the actual cleanup (called in background thread)"""
+        try:
+            from cleanup_old_incidents import IncidentCleanup
+            
+            # Get retention period from environment or use default (30 days)
+            retention_days = int(os.getenv('INCIDENT_RETENTION_DAYS', '30'))
+            
+            logger.info(f"🧹 Running automatic cleanup (retention: {retention_days} days)")
+            
+            cleanup = IncidentCleanup(retention_days=retention_days)
+            stats = cleanup.cleanup_all(dry_run=False)
+            
+            if stats['total_deleted'] > 0:
+                logger.info(f"✅ Cleanup complete: {stats['total_deleted']} files deleted, {stats['total_freed_mb']:.2f} MB freed")
+            else:
+                logger.info(f"✅ Cleanup complete: No files older than {retention_days} days")
+                
+        except Exception as e:
+            logger.error(f"Error during cleanup: {e}")
+    
+    def _save_incident_to_file(self, message, alert_type, incident_data):
+        """Save incident to local file when email/network unavailable (offline mode)"""
+        try:
+            # Create incidents directory if it doesn't exist
+            incidents_dir = os.path.join(os.getcwd(), 'offline_incidents')
+            os.makedirs(incidents_dir, exist_ok=True)
+            
+            # Generate filename with timestamp
+            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+            incident_type = incident_data.get('incident_type', 'unknown') if incident_data else 'unknown'
+            filename = f"offline_incident_{incident_type}_{timestamp}.txt"
+            filepath = os.path.join(incidents_dir, filename)
+            
+            # Write incident details to file
+            with open(filepath, 'w') as f:
+                f.write("="*70 + "\n")
+                f.write(f"OFFLINE INCIDENT ALERT - Email Unavailable\n")
+                f.write("="*70 + "\n\n")
+                f.write(f"Alert Type: {alert_type}\n")
+                f.write(f"Timestamp: {datetime.now().isoformat()}\n\n")
+                f.write("MESSAGE:\n")
+                f.write("-"*70 + "\n")
+                f.write(message)
+                f.write("\n" + "-"*70 + "\n\n")
+                
+                if incident_data:
+                    f.write("INCIDENT DATA:\n")
+                    f.write("-"*70 + "\n")
+                    for key, value in incident_data.items():
+                        if key != 'video_link_info':  # Skip large objects
+                            f.write(f"{key}: {value}\n")
+                    f.write("-"*70 + "\n\n")
+                
+                if incident_data and 'video_link_info' in incident_data:
+                    video_info = incident_data['video_link_info']
+                    f.write("VIDEO INFORMATION:\n")
+                    f.write("-"*70 + "\n")
+                    f.write(f"Video ID: {video_info.get('video_id', 'N/A')}\n")
+                    f.write(f"Local File: {video_info.get('local_file', 'N/A')}\n")
+                    f.write(f"Private Link: {video_info.get('private_link', 'N/A')}\n")
+                    f.write("-"*70 + "\n\n")
+                
+                f.write("="*70 + "\n")
+                f.write("NOTE: This incident was saved offline because email service\n")
+                f.write("was unavailable (DNS error or no internet connectivity).\n")
+                f.write("Please review and manually forward to security team.\n")
+                f.write("="*70 + "\n")
+            
+            logger.info(f"💾 Incident saved to offline file: {filepath}")
+            logger.info(f"📁 Check directory: {incidents_dir}")
+            return filepath
+            
+        except Exception as e:
+            logger.error(f"Failed to save incident to file: {e}")
+            return None
     
     def _attach_video_to_email(self, msg, video_path, incident_data=None):
         """Attach video file to email message"""

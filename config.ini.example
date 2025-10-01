@@ -48,6 +48,15 @@ password = your-email-password-here
 from_email = your-email@example.com
 to_email = alerts@example.com
 
+[SparseAI]
+# Sparse AI video hosting service configuration
+# Used for uploading incident videos and generating private links
+# IMPORTANT: Use your actual Render.com deployment URL
+# Example: https://sparse-ai-video-server.onrender.com
+api_key = your-sparse-ai-api-key-here
+base_url = https://sparse-ai-video-server.onrender.com
+default_expiration_hours = 48
+
 [Logging]
 # Logging configuration
 level = INFO

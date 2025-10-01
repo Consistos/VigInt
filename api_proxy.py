@@ -394,8 +394,8 @@ def create_video_from_frames(frames, output_path, fps=None, video_format=None, q
         
         # Create video writer with high-quality codec options
         codec_options = [
-            ('H264', cv2.VideoWriter_fourcc(*'H264')),
             ('avc1', cv2.VideoWriter_fourcc(*'avc1')),
+            ('H264', cv2.VideoWriter_fourcc(*'H264')),
             ('X264', cv2.VideoWriter_fourcc(*'X264')),
             (codec, cv2.VideoWriter_fourcc(*codec))  # Original codec as fallback
         ]
