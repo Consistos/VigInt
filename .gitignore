@@ -203,3 +203,10 @@ Thumbs.db
 
 # Cost reports
 cost_report.txt
+
+# Incident deduplication cache
+.incident_cache.json
+
+# Offline incidents and mock videos
+offline_incidents/
+mock_sparse_ai_cloud/

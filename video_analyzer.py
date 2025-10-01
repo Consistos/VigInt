@@ -1,19 +1,31 @@
-#!/usr/bin/env python3
 """
 Simple Video Analyzer using OpenCV and Gemini AI
 Processes RTSP video streams and analyzes frames for security incidents
 """
 
+import os
+import sys
 import cv2
-import time
+import base64
 import logging
 import threading
-import base64
-import os
 from datetime import datetime
-from collections import deque
-import google.generativeai as genai
+from pathlib import Path
+import time
+import hashlib
+import json
 from config import config
+
+# Optional Gemini AI import (guarded)
+try:
+    import google.generativeai as genai
+    _GENAI_AVAILABLE = True
+except Exception:
+    genai = None  # type: ignore
+    _GENAI_AVAILABLE = False
+
+_GLOBAL_INCIDENT_CACHE = {}
+_CACHE_FILE = os.path.join(os.getcwd(), '.incident_cache.json')
 
 # Import email modules with fallback
 EMAIL_AVAILABLE = False
@@ -41,13 +53,131 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
+def _load_incident_cache():
+    """Load incident cache from disk to persist across restarts"""
+    global _GLOBAL_INCIDENT_CACHE
+    try:
+        if os.path.exists(_CACHE_FILE):
+            with open(_CACHE_FILE, 'r') as f:
+                cache_data = json.load(f)
+                # Clean up expired entries (older than 24 hours)
+                current_time = time.time()
+                _GLOBAL_INCIDENT_CACHE = {
+                    k: v for k, v in cache_data.items()
+                    if current_time - v.get('timestamp', 0) < 86400  # 24 hours
+                }
+                logger.info(f"Loaded {len(_GLOBAL_INCIDENT_CACHE)} cached incidents")
+    except Exception as e:
+        logger.warning(f"Could not load incident cache: {e}")
+        _GLOBAL_INCIDENT_CACHE = {}
+
+
+def _save_incident_cache():
+    """Save incident cache to disk"""
+    try:
+        with open(_CACHE_FILE, 'w') as f:
+            json.dump(_GLOBAL_INCIDENT_CACHE, f)
+    except Exception as e:
+        logger.warning(f"Could not save incident cache: {e}")
+
+
+def _get_frame_hash(frame):
+    """
+    Create perceptual hash of frame for visual similarity matching
+    Uses very low resolution (4x4) to group similar scenes together
+    This tolerates movement, lighting changes, and timing differences
+    """
+    try:
+        import cv2
+        import numpy as np
+        
+        # Validate frame
+        if frame is None or not isinstance(frame, np.ndarray):
+            logger.error(f"Invalid frame for hashing: type={type(frame)}")
+            raise ValueError("Invalid frame")
+        
+        # VERY low resolution to group similar scenes (4x4 = 16 pixels total)
+        # This makes hash very tolerant of movement, position changes, etc.
+        small = cv2.resize(frame, (4, 4), interpolation=cv2.INTER_AREA)
+        
+        # Convert to grayscale
+        gray = cv2.cvtColor(small, cv2.COLOR_BGR2GRAY)
+        
+        # Compute average
+        avg = gray.mean()
+        
+        # Create hash based on whether each pixel is above/below average
+        # With only 16 pixels, this groups very similar scenes together
+        hash_bits = (gray > avg).flatten()
+        
+        # Convert to hex string
+        hash_bytes = np.packbits(hash_bits).tobytes()
+        frame_hash = hashlib.md5(hash_bytes).hexdigest()
+        
+        logger.debug(f"Generated frame hash: {frame_hash[:8]}... (frame shape: {frame.shape}, 4x4 grid)")
+        return frame_hash
+        
+    except Exception as e:
+        logger.error(f"Failed to hash frame: {e}", exc_info=True)
+        # Fallback to timestamp-based hash if frame processing fails
+        fallback = hashlib.md5(str(time.time()).encode()).hexdigest()
+        logger.warning(f"Using timestamp fallback hash: {fallback[:8]}...")
+        return fallback
+
+
+def _get_incident_hash(analysis_text, frame=None):
+    """
+    Create a unique hash for an incident
+    Prioritizes visual frame hash over text to handle varying AI descriptions
+    """
+    if frame is not None:
+        # Use visual frame hash (more reliable for same scene)
+        return _get_frame_hash(frame)
+    else:
+        # Fallback to text-based hash
+        content = analysis_text[:100].lower().strip()
+        return hashlib.md5(content.encode()).hexdigest()
+
+
+def _check_duplicate_global(incident_hash, cooldown_seconds=300):
+    """
+    Check if incident is duplicate using global cache
+    Returns: (is_duplicate, time_since_last)
+    """
+    global _GLOBAL_INCIDENT_CACHE
+    current_time = time.time()
+    
+    if incident_hash in _GLOBAL_INCIDENT_CACHE:
+        last_time = _GLOBAL_INCIDENT_CACHE[incident_hash]['timestamp']
+        time_since = current_time - last_time
+        
+        if time_since < cooldown_seconds:
+            return True, time_since
+    
+    return False, None
+
+
+def _register_incident_global(incident_hash, incident_type):
+    """Register an incident in the global cache"""
+    global _GLOBAL_INCIDENT_CACHE
+    _GLOBAL_INCIDENT_CACHE[incident_hash] = {
+        'timestamp': time.time(),
+        'incident_type': incident_type
+    }
+    _save_incident_cache()
+
+
+# Load cache on module import
+_load_incident_cache()
+
+
 class VideoAnalyzer:
     """Handles video stream processing and AI analysis"""
     
     def __init__(self):
         # Configure Gemini AI with fallback models
         self.gemini_api_key = os.getenv('GOOGLE_API_KEY')
-        if self.gemini_api_key:
+        if self.gemini_api_key and _GENAI_AVAILABLE:
             genai.configure(
                 api_key=self.gemini_api_key,
                 transport='rest'
@@ -74,6 +204,9 @@ class VideoAnalyzer:
             
             if not self.model:
                 logger.error("Failed to load any Gemini model")
+        elif self.gemini_api_key and not _GENAI_AVAILABLE:
+            logger.warning("Google Generative AI SDK not available; falling back to mock analysis")
+            self.model = None
         else:
             logger.error("Gemini API key not found in environment variables")
             self.model = None
@@ -402,6 +535,8 @@ Veuillez examiner immédiatement les preuves vidéo ci-jointes.
     def _analyze_frames_async(self):
         """Analyze recent frames from buffer in a separate thread"""
         try:
+            logger.warning("⚡ Starting async frame analysis...")
+            
             # Get the most recent frame for analysis
             if len(self.frame_buffer) == 0:
                 logger.warning("No frames in buffer for analysis")
@@ -428,28 +563,57 @@ Veuillez examiner immédiatement les preuves vidéo ci-jointes.
                     logger.warning("🚨 POTENTIAL SECURITY EVENT DETECTED!")
                     logger.warning(f"Analysis: {result['analysis']}")
                     
-                    # Check if this is a duplicate incident (deduplication)
-                    current_time = time.time()
-                    incident_signature = f"{result.get('incident_type', 'unknown')}_{result.get('analysis', '')[:50]}"
+                    try:
+                        # GLOBAL deduplication using persistent cache with VISUAL frame hashing
+                        # This prevents duplicates even if AI describes the scene differently
+                        analysis_text = result.get('analysis', '')
+                        incident_type = result.get('incident_type', 'unknown')
+                        
+                        logger.warning(f"🔍 Checking deduplication for incident type: {incident_type}")
+                        
+                        # Use VISUAL frame hash (not text) - same scene = same hash
+                        incident_hash = _get_incident_hash(analysis_text, frame=frame_array)
+                        logger.warning(f"   Generated visual hash: {incident_hash[:8]}...")
+                        
+                        # Use 5-minute cooldown for global cache (longer than local cooldown)
+                        is_duplicate, time_since = _check_duplicate_global(incident_hash, cooldown_seconds=300)
+                        logger.warning(f"   Duplicate check result: is_duplicate={is_duplicate}, time_since={time_since}")
+                    except Exception as dedup_error:
+                        logger.error(f"❌ Deduplication failed: {dedup_error}", exc_info=True)
+                        # Continue without deduplication on error
+                        is_duplicate = False
+                        time_since = None
                     
-                    # Skip if we recently alerted about a similar incident
+                    if is_duplicate:
+                        logger.warning(f"⏭️  Skipping GLOBAL duplicate incident (seen {time_since:.1f}s ago)")
+                        logger.warning(f"   Visual Hash: {incident_hash[:8]}... | Type: {incident_type}")
+                        logger.warning(f"   Same scene detected (AI may describe differently but visually identical)")
+                        return
+                    
+                    # Also check local instance deduplication (backup check)
+                    current_time = time.time()
+                    incident_signature = f"{incident_type}_{analysis_text[:50]}"
+                    
                     if (current_time - self.last_incident_time < self.incident_cooldown and 
                         self.last_incident_hash == incident_signature):
-                        logger.info(f"⏭️  Skipping duplicate incident alert (cooldown: {self.incident_cooldown}s)")
+                        logger.info(f"⏭️  Skipping local duplicate incident alert (cooldown: {self.incident_cooldown}s)")
                         logger.info(f"   Time since last alert: {current_time - self.last_incident_time:.1f}s")
                         return
                     
-                    # Update incident tracking
+                    # Register incident in global cache
+                    _register_incident_global(incident_hash, incident_type)
+                    
+                    # Update local instance tracking
                     self.last_incident_time = current_time
                     self.last_incident_hash = incident_signature
                     
                     # Get ALL recent frames for smooth video evidence
-                    # This is the key - we use the continuous buffer, not just analyzed frames
                     video_frames = self._get_recent_frames(duration_seconds=10)
                     
-                    logger.info(f"📹 Creating video from {len(video_frames)} buffered frames")
-                    logger.info("🎬 Video will show continuous footage, not just analyzed frames")
-                    logger.info(f"📧 Sending NEW incident alert (cooldown active for next {self.incident_cooldown}s)")
+                    logger.warning(f"📹 Creating video from {len(video_frames)} buffered frames")
+                    logger.warning("🎬 Video will show continuous footage, not just analyzed frames")
+                    logger.warning(f"📧 Sending NEW incident alert (visual hash cached: {incident_hash[:8]}...)")
+                    logger.warning(f"   Cooldowns: Local {self.incident_cooldown}s | Global 300s (visual deduplication)")
                     
                     # Send alert email with video
                     self.send_alert_email(result, video_frames)
