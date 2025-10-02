@@ -13,6 +13,14 @@ debug = false
 host = 0.0.0.0
 port = 5000
 
+# API Server URL (for distributed deployments)
+# If api_proxy.py runs on a different machine, set this to its URL
+# Examples:
+#   api_server_url = http://192.168.1.100:5002
+#   api_server_url = https://api.yourdomain.com
+# Leave empty or comment out for local deployment (default)
+# api_server_url =
+
 
 
 [Stripe]
@@ -49,12 +57,14 @@ from_email = your-email@example.com
 to_email = alerts@example.com
 
 [SparseAI]
-# Sparse AI video hosting service configuration
+# Video hosting service configuration (integrated with API server)
 # Used for uploading incident videos and generating private links
-# IMPORTANT: Use your actual Render.com deployment URL
-# Example: https://sparse-ai-video-server.onrender.com
+# NOTE: Video storage is now integrated into the main API server
+# Use the same URL as api_server_url if using distributed deployment
+# For local deployment, use http://localhost:5002
+# For Render.com: https://vigint-api-server.onrender.com
 api_key = your-sparse-ai-api-key-here
-base_url = https://sparse-ai-video-server.onrender.com
+base_url = https://vigint-api-server.onrender.com
 default_expiration_hours = 48
 
 [Logging]

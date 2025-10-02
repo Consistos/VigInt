@@ -49,10 +49,13 @@ if gemini_api_key:
         api_key=gemini_api_key,
         transport='rest'
     )
-    gemini_model = genai.GenerativeModel('gemini-1.5-flash')
-    logger.info("Gemini AI configured on server")
+    # Use Flash-Lite for short buffer (quick initial analysis) and Flash for long buffer (detailed analysis)
+    gemini_model_short = genai.GenerativeModel('gemini-2.5-flash-lite')  # Short buffer: fast, lightweight
+    gemini_model_long = genai.GenerativeModel('gemini-2.5-flash')  # Long buffer: detailed analysis
+    logger.info("Gemini AI configured on server: 2.5 Flash-Lite for short buffer, 2.5 Flash for long buffer")
 else:
-    gemini_model = None
+    gemini_model_short = None
+    gemini_model_long = None
     logger.warning("Gemini API key not configured")
 
 # Email configuration (server-side only)
@@ -553,7 +556,13 @@ def generate_incident_video(client_id, incident_analysis=None, buffer_type='long
 
 def analyze_frame_for_security(frame_base64, frame_count, buffer_type="short"):
     """Analyze frame for security incidents using Gemini AI"""
-    if not gemini_model:
+    # Select appropriate model based on buffer type
+    if buffer_type == "short":
+        model = gemini_model_short
+    else:
+        model = gemini_model_long
+    
+    if not model:
         return None
     
     # Temporary quota check - return mock analysis if quota exceeded
@@ -588,14 +597,13 @@ def analyze_frame_for_security(frame_base64, frame_count, buffer_type="short"):
         Your response must be a valid JSON object with the following structure:
         {{"incident_detected": boolean,  // true if an incident is detected, false otherwise
         "incident_type": string      // Describe the type of incident (e.g.: shoplifting)
-        "confidence": float,         // confidence level between 0.0 and 1.0
         "description": string,       // description of what you see
         "analysis": string,          // detailed analysis of the video content}}
         
         Answer in French.
         """
         
-        response = gemini_model.generate_content([
+        response = model.generate_content([
             prompt,
             {"mime_type": "image/jpeg", "data": frame_base64}
         ])
@@ -616,25 +624,15 @@ def analyze_frame_for_security(frame_base64, frame_count, buffer_type="short"):
             analysis_json = json.loads(response_text)
             
             has_security_incident = analysis_json.get('incident_detected', False)
-            confidence = analysis_json.get('confidence', 0.0)
             description = analysis_json.get('description', '')
             analysis_text = analysis_json.get('analysis', '')
             incident_type = analysis_json.get('incident_type', '')
-            
-            # Map confidence to risk level
-            if confidence >= 0.8:
-                risk_level = "HIGH"
-            elif confidence >= 0.5:
-                risk_level = "MEDIUM"
-            else:
-                risk_level = "LOW"
                 
         except (json.JSONDecodeError, KeyError) as e:
             logger.warning(f"Failed to parse JSON response, falling back to text analysis: {e}")
             analysis_text = response.text
             analysis_text_lower = analysis_text.lower()
             has_security_incident = 'incident_detected": true' in analysis_text_lower
-            risk_level = "MEDIUM"  # Default risk level
             
             # Try to extract incident_type from text
             incident_type = ""
@@ -858,7 +856,7 @@ def analyze_frame():
     start_time = time.time()
     
     try:
-        if not gemini_model:
+        if not gemini_model_short:
             return jsonify({'error': 'AI analysis not available'}), 503
         
         # Get client's frame buffer
@@ -1414,7 +1412,7 @@ def generate_incident_summary(analysis_text, risk_level, detailed_analysis, tota
 
 def analyze_incident_context(frames):
     """Analyze longer buffer for detailed incident context"""
-    if not frames or not gemini_model:
+    if not frames or not gemini_model_long:
         return None
     
     try:
@@ -1438,12 +1436,12 @@ def analyze_incident_context(frames):
             4. Removing security tags or packaging
             
             Return ONLY a JSON object:
-            {{"incident_detected": boolean, "incident_type": string, "confidence": float, "description": string, "analysis": string}}
+            {{"incident_detected": boolean, "incident_type": string, "description": string, "analysis": string}}
             
             Answer in French.
             """
             
-            response = gemini_model.generate_content([
+            response = gemini_model_long.generate_content([
                 prompt,
                 {"mime_type": "image/jpeg", "data": frame_info['frame_data']}
             ])
@@ -1463,11 +1461,9 @@ def analyze_incident_context(frames):
                 analysis_json = json.loads(response_text)
                 analysis_text = analysis_json.get('analysis', response.text)
                 incident_type = analysis_json.get('incident_type', '')
-                confidence = analysis_json.get('confidence', 0.0)
             except (json.JSONDecodeError, KeyError):
                 analysis_text = response.text
                 incident_type = ''
-                confidence = 0.0
                 
                 # Try to extract incident_type from text
                 if '"incident_type":' in response.text.lower():
@@ -1480,8 +1476,7 @@ def analyze_incident_context(frames):
                 'frame_position': 'Start' if i == 0 else 'Middle' if i == 1 else 'End',
                 'frame_count': frame_info['frame_count'],
                 'analysis': analysis_text,
-                'incident_type': incident_type,
-                'confidence': confidence
+                'incident_type': incident_type
             })
         
         return context_analysis
@@ -1557,13 +1552,11 @@ def send_security_alert():
         incident_timestamp = datetime.now()
         
         body = f"""
-🚨 ALERTE SÉCURITÉ VIGINT - RISQUE {risk_level}
+🚨 ALERTE SÉCURITÉ VIGINT
 
 Client: {request.current_client.name}
-Heure: {incident_timestamp.strftime('%Y-%m-%d %H:%M:%S')} UTC
-Niveau de risque: {risk_level}
+Heure: {incident_timestamp.strftime('%H:%M:%S - %d/%m/%Y')} UTC
 Type d'incident: {incident_type if incident_type else 'Non spécifié'}
-
 ANALYSE:
 {analysis_text}
 
@@ -1873,6 +1866,148 @@ def get_usage():
         return jsonify({'error': 'Internal server error'}), 500
 
 
+@app.route('/api/video/compress', methods=['POST'])
+@require_api_key_flexible
+def compress_video_api():
+    """API endpoint for video compression"""
+    try:
+        data = request.get_json()
+        
+        if not data or 'video_data' not in data:
+            return jsonify({'error': 'Missing video_data'}), 400
+        
+        # Decode video data
+        video_data = base64.b64decode(data['video_data'])
+        filename = data.get('filename', 'video.mp4')
+        max_size_mb = data.get('max_size_mb', 20)
+        quality_reduction = data.get('quality_reduction', 0.85)
+        
+        # Save to temporary file
+        with tempfile.NamedTemporaryFile(delete=False, suffix='.mp4') as tmp_file:
+            tmp_file.write(video_data)
+            input_path = tmp_file.name
+        
+        try:
+            # Compress video
+            result = compress_video_for_email(input_path, max_size_mb, quality_reduction)
+            
+            if result.get('success') and result.get('compressed_path'):
+                # Read compressed video
+                with open(result['compressed_path'], 'rb') as f:
+                    compressed_data = base64.b64encode(f.read()).decode('utf-8')
+                
+                # Clean up
+                os.unlink(result['compressed_path'])
+                
+                return jsonify({
+                    'success': True,
+                    'video_data': compressed_data,
+                    'original_size': result.get('original_size'),
+                    'compressed_size': result.get('compressed_size'),
+                    'compression_ratio': result.get('compression_ratio')
+                })
+            else:
+                return jsonify({'success': False, 'error': result.get('error')}), 500
+                
+        finally:
+            # Clean up input file
+            if os.path.exists(input_path):
+                os.unlink(input_path)
+        
+    except Exception as e:
+        logger.error(f"Error compressing video: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/video/create', methods=['POST'])
+@require_api_key_flexible
+def create_video_api():
+    """API endpoint for creating video from frames"""
+    try:
+        data = request.get_json()
+        
+        if not data or 'frames' not in data:
+            return jsonify({'error': 'Missing frames data'}), 400
+        
+        frames_data = data['frames']
+        output_filename = data.get('output_filename', 'output.mp4')
+        fps = data.get('fps')
+        video_format = data.get('video_format')
+        
+        # Decode frames
+        frames = []
+        for frame_b64 in frames_data:
+            frame_bytes = base64.b64decode(frame_b64)
+            # Convert to numpy array
+            nparr = np.frombuffer(frame_bytes, np.uint8)
+            frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+            if frame is not None:
+                frames.append(frame)
+        
+        if not frames:
+            return jsonify({'error': 'No valid frames decoded'}), 400
+        
+        # Create temporary output path
+        output_path = os.path.join(tempfile.gettempdir(), output_filename)
+        
+        # Create video
+        result = create_video_from_frames(frames, output_path, fps, video_format)
+        
+        if result.get('success'):
+            # Read created video
+            with open(output_path, 'rb') as f:
+                video_data = base64.b64encode(f.read()).decode('utf-8')
+            
+            # Store video temporarily for download
+            download_id = os.urandom(16).hex()
+            download_path = os.path.join(tempfile.gettempdir(), f'download_{download_id}.mp4')
+            os.rename(output_path, download_path)
+            
+            return jsonify({
+                'success': True,
+                'video_data': video_data,
+                'download_url': f'/api/video/download/{download_id}',
+                'frames_processed': result.get('frames_processed'),
+                'duration': result.get('duration')
+            })
+        else:
+            return jsonify({'success': False, 'error': result.get('error')}), 500
+        
+    except Exception as e:
+        logger.error(f"Error creating video: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/video/download/<download_id>')
+@require_api_key_flexible
+def download_video(download_id):
+    """Download a generated video"""
+    try:
+        download_path = os.path.join(tempfile.gettempdir(), f'download_{download_id}.mp4')
+        
+        if not os.path.exists(download_path):
+            return jsonify({'error': 'Video not found or expired'}), 404
+        
+        # Send file and schedule deletion
+        def cleanup_after_send():
+            time.sleep(5)  # Give time for download to complete
+            if os.path.exists(download_path):
+                os.unlink(download_path)
+        
+        # Schedule cleanup in background
+        threading.Thread(target=cleanup_after_send, daemon=True).start()
+        
+        return Response(
+            open(download_path, 'rb').read(),
+            mimetype='video/mp4',
+            headers={'Content-Disposition': f'attachment; filename=video_{download_id}.mp4'}
+        )
+        
+    except Exception as e:
+        logger.error(f"Error downloading video: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
 def initialize_database():
     """Initialize database tables"""
     with app.app_context():
@@ -1881,6 +2016,169 @@ def initialize_database():
             logger.info("Database initialized successfully")
         except Exception as e:
             logger.error(f"Failed to initialize database: {e}")
+
+
+# ============================================================================
+# VIDEO STORAGE SERVICE (Sparse AI integration)
+# ============================================================================
+
+# Video storage directory
+VIDEO_STORAGE_DIR = os.environ.get('VIDEO_STORAGE_DIR', 
+                                   os.path.join(tempfile.gettempdir(), 'video_uploads'))
+
+if not os.path.exists(VIDEO_STORAGE_DIR):
+    os.makedirs(VIDEO_STORAGE_DIR)
+    logger.info(f"Created video storage directory: {VIDEO_STORAGE_DIR}")
+
+
+def find_video_metadata(video_id):
+    """Find the metadata file for a given video_id"""
+    import json
+    for filename in os.listdir(VIDEO_STORAGE_DIR):
+        if filename.endswith('.json'):
+            filepath = os.path.join(VIDEO_STORAGE_DIR, filename)
+            try:
+                with open(filepath, 'r') as f:
+                    metadata = json.load(f)
+                    if metadata.get('video_id') == video_id:
+                        return metadata, os.path.splitext(filename)[0] + '.mp4'
+            except (json.JSONDecodeError, IOError):
+                continue
+    return None, None
+
+
+def validate_video_token(video_id, token):
+    """Validate the access token for a video"""
+    import hashlib
+    from datetime import datetime
+    
+    metadata, video_filename = find_video_metadata(video_id)
+    if not metadata:
+        return False, "Video not found", None
+
+    expiration_time_str = metadata.get('expiration_time')
+    if not expiration_time_str:
+        return False, "Expiration time not found", None
+
+    expiration_time = datetime.fromisoformat(expiration_time_str)
+    if datetime.now() > expiration_time:
+        return False, "Link has expired", None
+
+    # Recreate the token to validate it
+    # Use either SPARSE_AI_API_KEY or SECRET_KEY for compatibility
+    api_key = os.environ.get('SPARSE_AI_API_KEY') or config.secret_key
+    token_data = f"{video_id}:{expiration_time.isoformat()}:{api_key}"
+    expected_token = hashlib.sha256(token_data.encode()).hexdigest()[:32]
+
+    if token == expected_token:
+        return True, "Valid token", video_filename
+    else:
+        return False, "Invalid token", None
+
+
+@app.route('/video/<video_id>')
+def serve_video_with_token(video_id):
+    """Serve a video file after validating the token (Sparse AI compatible)"""
+    from flask import abort, send_from_directory
+    
+    token = request.args.get('token')
+    if not token:
+        abort(401, description="Access token is missing.")
+
+    is_valid, message, video_filename = validate_video_token(video_id, token)
+    if not is_valid:
+        abort(403, description=message)
+
+    video_path = os.path.join(VIDEO_STORAGE_DIR, video_filename)
+    if not os.path.exists(video_path):
+        abort(404, description="Video file not found on server.")
+
+    return send_from_directory(VIDEO_STORAGE_DIR, video_filename, as_attachment=False)
+
+
+@app.route('/api/v1/videos/upload', methods=['POST'])
+def upload_video_sparse_ai():
+    """Handle video uploads (Sparse AI compatible endpoint)"""
+    import json
+    import hashlib
+    from datetime import timedelta
+    
+    # Support both Bearer token and X-API-Key authentication
+    auth_header = request.headers.get('Authorization')
+    api_key = None
+    
+    if auth_header and auth_header.startswith('Bearer '):
+        api_key = auth_header.split(' ')[1]
+    elif request.headers.get('X-API-Key'):
+        api_key = request.headers.get('X-API-Key')
+    
+    if not api_key:
+        return jsonify({"error": "Authorization header missing"}), 401
+    
+    # Validate API key - accept either SPARSE_AI_API_KEY or SECRET_KEY
+    valid_keys = [
+        os.environ.get('SPARSE_AI_API_KEY'),
+        config.secret_key
+    ]
+    
+    if api_key not in [k for k in valid_keys if k]:
+        return jsonify({"error": "Invalid API key"}), 403
+
+    if 'video' not in request.files:
+        return jsonify({"error": "No video file part"}), 400
+
+    file = request.files['video']
+    if file.filename == '':
+        return jsonify({"error": "No selected file"}), 400
+
+    metadata_str = request.form.get('metadata', '{}')
+    try:
+        metadata = json.loads(metadata_str)
+    except json.JSONDecodeError:
+        return jsonify({"error": "Invalid metadata"}), 400
+
+    video_id = metadata.get('video_id')
+    if not video_id:
+        return jsonify({"error": "video_id missing from metadata"}), 400
+
+    # Use expiration from request or default to 30 days
+    expiration_hours = int(request.form.get('expiration_hours', 720))  # 30 days default
+    expiration_time = datetime.now() + timedelta(hours=expiration_hours)
+    metadata['expiration_time'] = expiration_time.isoformat()
+
+    # Save the video file
+    video_filename = f"video_{video_id}.mp4"
+    video_path = os.path.join(VIDEO_STORAGE_DIR, video_filename)
+    file.save(video_path)
+
+    # Save the metadata file
+    metadata_filename = f"video_{video_id}.json"
+    metadata_path = os.path.join(VIDEO_STORAGE_DIR, metadata_filename)
+    with open(metadata_path, 'w') as f:
+        json.dump(metadata, f, indent=2)
+
+    # Generate the private link
+    # Use SPARSE_AI_API_KEY if available for token generation, otherwise SECRET_KEY
+    token_key = os.environ.get('SPARSE_AI_API_KEY') or config.secret_key
+    token_data = f"{video_id}:{expiration_time.isoformat()}:{token_key}"
+    token = hashlib.sha256(token_data.encode()).hexdigest()[:32]
+    
+    # Use HTTPS for production
+    base_url = request.host_url
+    if os.environ.get('RENDER'):
+        base_url = base_url.replace('http://', 'https://')
+    
+    private_link = f"{base_url}video/{video_id}?token={token}"
+
+    logger.info(f"Video uploaded successfully: {video_id}")
+    
+    return jsonify({
+        "success": True,
+        "video_id": video_id,
+        "private_link": private_link,
+        "expiration_time": expiration_time.isoformat(),
+        "message": "Video uploaded successfully"
+    }), 200
 
 
 if __name__ == '__main__':
