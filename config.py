@@ -18,6 +18,9 @@ class Config:
     
     def load_config(self):
         """Load configuration from files"""
+        # Check if running on Render.com or other cloud platform
+        is_cloud_deployment = os.environ.get('RENDER') or os.environ.get('RAILWAY') or os.environ.get('HEROKU')
+        
         # Determine which config file to use
         config_path = os.environ.get('VIGINT_CONFIG_PATH')
         server_config_path = os.environ.get('VIGINT_SERVER_CONFIG_PATH')
@@ -36,6 +39,10 @@ class Config:
                 self.config.read(server_config)
             elif dev_config.exists():
                 self.config.read(dev_config)
+            elif is_cloud_deployment:
+                # On cloud platforms, use environment variables only (no config file required)
+                # Create empty config - all values will come from environment variables
+                pass
             else:
                 raise FileNotFoundError("No configuration file found. Please create config.ini or server_config.ini")
     
@@ -62,7 +69,8 @@ class Config:
     @property
     def database_url(self):
         """Get database URL"""
-        return self.get('Database', 'database_url', 'sqlite:///vigint.db')
+        # Environment variable takes precedence (for Render.com, etc.)
+        return os.getenv('DATABASE_URL') or self.get('Database', 'database_url', 'sqlite:///vigint.db')
     
     @property
     def secret_key(self):
@@ -88,6 +96,12 @@ class Config:
     def port(self):
         """Get port"""
         return self.getint('API', 'port', 5000)
+    
+    @property
+    def api_server_url(self):
+        """Get API server URL for remote deployments"""
+        # If set, use remote API server. Otherwise, assume local deployment
+        return self.get('API', 'api_server_url', None)
     
     # VideoAnalysis configuration properties
     @property
