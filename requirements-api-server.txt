@@ -16,6 +16,9 @@ requests==2.31.0
 # Configuration
 python-dotenv==1.0.0
 
+# Authentication
+PyJWT==2.8.0
+
 # Video processing
 opencv-python-headless==4.8.1.78  # Headless version for server
 numpy==1.24.3
