@@ -578,7 +578,9 @@ Type d'incident: {analysis_result.get('incident_type', 'Non spécifié')}
                     logger.info(f"Created temporary video: {video_path}")
             
             # Send alert to server
-            risk_level = 'HIGH' if analysis_result.get('incident_detected', False) else 'LOW'
+            # Server may return has_security_incident or incident_detected
+            incident_detected = analysis_result.get('has_security_incident', analysis_result.get('incident_detected', False))
+            risk_level = 'HIGH' if incident_detected else 'LOW'
             result = self.api_client.send_security_alert(
                 analysis=analysis_result.get('analysis', ''),
                 risk_level=risk_level,
@@ -734,7 +736,9 @@ Type d'incident: {analysis_result.get('incident_type', 'Non spécifié')}
             
             if result:
                 # Check if alert should be sent based on incident detection
-                if result.get('incident_detected', False):
+                # Server returns 'has_security_incident', local returns 'incident_detected'
+                incident_detected = result.get('has_security_incident', result.get('incident_detected', False))
+                if incident_detected:
                     logger.warning("🚨 POTENTIAL SECURITY EVENT DETECTED!")
                     logger.warning(f"Analysis: {result['analysis']}")
                     
