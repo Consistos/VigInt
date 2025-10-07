@@ -62,16 +62,16 @@ def initialize_gemini_models():
         )
         
         # Try different model versions with fallback
+        # Use only model names that exist in v1beta API
         short_model_versions = [
-            'gemini-1.5-flash',
             'gemini-1.5-flash-latest',
-            'gemini-flash',
+            'gemini-1.5-pro-latest',
             'gemini-pro'
         ]
         
         long_model_versions = [
-            'gemini-1.5-pro',
-            'gemini-1.5-flash',
+            'gemini-1.5-pro-latest',
+            'gemini-1.5-flash-latest',
             'gemini-pro'
         ]
         
