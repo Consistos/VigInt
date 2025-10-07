@@ -175,41 +175,64 @@ class VideoAnalyzer:
     """Handles video stream processing and AI analysis"""
     
     def __init__(self):
-        # Configure Gemini AI with fallback models
-        self.gemini_api_key = os.getenv('GOOGLE_API_KEY')
-        if self.gemini_api_key and _GENAI_AVAILABLE:
-            genai.configure(
-                api_key=self.gemini_api_key,
-                transport='rest'
-            )
-            
-            # Try different model versions with fallback (updated for 2025)
-            model_versions = [
-                'gemini-2.5-flash',
-                'gemini-2.0-flash',
-                'gemini-flash-latest',
-                'gemini-pro-latest',
-                'gemini-2.5-pro'
-            ]
-            
-            self.model = None
-            for model_name in model_versions:
-                try:
-                    self.model = genai.GenerativeModel(model_name)
-                    logger.info(f"Gemini AI configured successfully with model: {model_name}")
-                    break
-                except Exception as e:
-                    logger.warning(f"Failed to load model {model_name}: {e}")
-                    continue
-            
-            if not self.model:
-                logger.error("Failed to load any Gemini model")
-        elif self.gemini_api_key and not _GENAI_AVAILABLE:
-            logger.warning("Google Generative AI SDK not available; falling back to mock analysis")
-            self.model = None
+        # Check if running in distributed/client mode
+        self.api_server_url = config.api_server_url
+        self.use_remote_api = bool(self.api_server_url)
+        
+        if self.use_remote_api:
+            # Client mode: use API client to communicate with server
+            logger.info(f"🌐 Client mode enabled - connecting to: {self.api_server_url}")
+            try:
+                from api_client import get_api_client
+                self.api_client = get_api_client()
+                logger.info("✅ API client initialized successfully")
+                self.model = "remote"  # Marker that we're using remote API
+            except Exception as e:
+                logger.error(f"Failed to initialize API client: {e}")
+                logger.warning("Falling back to local mode")
+                self.use_remote_api = False
+                self.api_client = None
+                self.model = None
         else:
-            logger.error("Gemini API key not found in environment variables")
-            self.model = None
+            # Local mode: configure Gemini AI directly
+            logger.info("🏠 Local mode - using local Gemini API")
+            self.api_client = None
+            
+            # Configure Gemini AI with fallback models
+            self.gemini_api_key = os.getenv('GOOGLE_API_KEY')
+            if self.gemini_api_key and _GENAI_AVAILABLE:
+                genai.configure(
+                    api_key=self.gemini_api_key,
+                    transport='rest'
+                )
+                
+                # Try different model versions with fallback (updated for 2025)
+                model_versions = [
+                    'gemini-2.5-flash',
+                    'gemini-2.0-flash',
+                    'gemini-flash-latest',
+                    'gemini-pro-latest',
+                    'gemini-2.5-pro'
+                ]
+                
+                self.model = None
+                for model_name in model_versions:
+                    try:
+                        self.model = genai.GenerativeModel(model_name)
+                        logger.info(f"Gemini AI configured successfully with model: {model_name}")
+                        break
+                    except Exception as e:
+                        logger.warning(f"Failed to load model {model_name}: {e}")
+                        continue
+                
+                if not self.model:
+                    logger.error("Failed to load any Gemini model")
+            elif self.gemini_api_key and not _GENAI_AVAILABLE:
+                logger.warning("Google Generative AI SDK not available; falling back to mock analysis")
+                self.model = None
+            else:
+                logger.error("Gemini API key not found in environment variables")
+                self.model = None
         
         # Email configuration
         self.email_config = {
@@ -253,6 +276,11 @@ class VideoAnalyzer:
     
     def analyze_frame(self, frame):
         """Analyze a video frame using Gemini AI with fallback"""
+        # If using remote API, send to server
+        if self.use_remote_api and self.api_client:
+            return self._analyze_frame_remote(frame)
+        
+        # Local analysis
         if not self.model:
             return self._mock_analysis(frame)
         
@@ -265,14 +293,9 @@ class VideoAnalyzer:
             prompt = f"""
             Analyze the provided video carefully for security incidents in a retail environment, with special focus on shoplifting behavior. Pay particular attention to:
             1. Customers taking items and concealing them (in pockets, bags, clothing)
-            2. Unusual handling of merchandise (checking for security tags, looking around suspiciously)
+            2. Unusual handling of merchandise (checking for security tags)
             3. Taking items without paying
-            4. Groups working together to distract staff while items are taken
-            5. Removing packaging or security devices
-            6. Unusual movements around high-value items
-            7. Signs of nervousness or anxiety while handling merchandise
-            
-            Your analysis must be thorough and should err on the side of detecting potential security incidents rather than missing them.
+            4. Removing packaging or security devices
             
             Return ONLY the JSON object without markdown formatting, code blocks, or additional text.
             If no incidents are detected, return the JSON with incident_detected set to false.
@@ -280,7 +303,6 @@ class VideoAnalyzer:
             Your response must be a valid JSON object with the following structure:
             {{"incident_detected": boolean,  // true if an incident is detected, false otherwise
             "incident_type": string,     // Describe the type of incident (e.g.: shoplifting, theft, vandalism)
-            "confidence": float,         // confidence level between 0.0 and 1.0
             "description": string,       // brief description of what you see
             "analysis": string,          // detailed analysis of the video content}}
             
@@ -292,6 +314,25 @@ class VideoAnalyzer:
                 prompt,
                 {"mime_type": "image/jpeg", "data": frame_base64}
             ])
+            
+            # Extract token usage from response metadata
+            token_usage = {
+                'prompt_tokens': 0,
+                'completion_tokens': 0,
+                'total_tokens': 0
+            }
+            
+            try:
+                if hasattr(response, 'usage_metadata'):
+                    token_usage['prompt_tokens'] = getattr(response.usage_metadata, 'prompt_token_count', 0)
+                    token_usage['completion_tokens'] = getattr(response.usage_metadata, 'candidates_token_count', 0)
+                    token_usage['total_tokens'] = getattr(response.usage_metadata, 'total_token_count', 0)
+                    
+                    logger.info(f"🔢 Token usage - Prompt: {token_usage['prompt_tokens']}, "
+                               f"Completion: {token_usage['completion_tokens']}, "
+                               f"Total: {token_usage['total_tokens']}")
+            except Exception as token_error:
+                logger.warning(f"Could not extract token usage: {token_error}")
             
             # Parse JSON response
             try:
@@ -333,7 +374,8 @@ class VideoAnalyzer:
                 'analysis': analysis_text,
                 'incident_detected': incident_detected,
                 'incident_type': incident_type,
-                'frame_shape': frame.shape
+                'frame_shape': frame.shape,
+                'token_usage': token_usage
             }
             
             logger.info(f"Frame {self.frame_count} analyzed")
@@ -352,6 +394,73 @@ class VideoAnalyzer:
                 if self._api_error_count == 3:
                     logger.info("🎭 Switching to mock analysis mode due to API issues")
             
+            return self._mock_analysis(frame)
+    
+    def _analyze_frame_remote(self, frame):
+        """Send frame to remote server for analysis"""
+        try:
+            # Convert frame to base64
+            _, buffer_img = cv2.imencode('.jpg', frame)
+            frame_base64 = base64.b64encode(buffer_img).decode('utf-8')
+            
+            # Step 1: Add frame to server's buffer
+            import os
+            client_id = os.getenv('VIGINT_CLIENT_ID', 'default')  # Could use client name from auth
+            
+            buffer_result = self.api_client.add_frame_to_buffer(
+                client_id=client_id,
+                frame_data=frame_base64,
+                timestamp=datetime.now().isoformat(),
+                frame_count=self.frame_count
+            )
+            
+            # Step 2: Only analyze every N frames (to match local behavior)
+            current_time = time.time()
+            if not hasattr(self, '_last_remote_analysis_time'):
+                self._last_remote_analysis_time = 0
+            
+            # Analyze every 5 seconds (matches local analysis_interval)
+            if current_time - self._last_remote_analysis_time < self.analysis_interval:
+                # Just buffered, no analysis yet
+                return {
+                    'timestamp': datetime.now().isoformat(),
+                    'frame_count': self.frame_count,
+                    'analysis': 'Frame buffered (no analysis this cycle)',
+                    'incident_detected': False,
+                    'incident_type': '',
+                    'frame_shape': frame.shape,
+                    'token_usage': {}
+                }
+            
+            self._last_remote_analysis_time = current_time
+            
+            # Request analysis of buffered frames
+            result = self.api_client.analyze_frame(
+                frame_data=None,  # Server uses buffered frames
+                frame_count=self.frame_count,
+                buffer_type="short"
+            )
+            
+            # Parse server response
+            analysis_result = {
+                'timestamp': datetime.now().isoformat(),
+                'frame_count': self.frame_count,
+                'analysis': result.get('analysis', ''),
+                'incident_detected': result.get('incident_detected', False),
+                'incident_type': result.get('incident_type', ''),
+                'frame_shape': frame.shape,
+                'token_usage': result.get('token_usage', {})
+            }
+            
+            logger.info(f"Frame {self.frame_count} analyzed via server")
+            if analysis_result['analysis']:
+                logger.info(f"Analysis: {analysis_result['analysis'][:200]}...")
+            
+            return analysis_result
+            
+        except Exception as e:
+            logger.error(f"Remote analysis failed: {e}")
+            logger.warning("Falling back to mock analysis")
             return self._mock_analysis(frame)
     
     def _mock_analysis(self, frame):
@@ -374,12 +483,16 @@ class VideoAnalyzer:
             'analysis': f"Mock analysis of frame {self.frame_count} - {'Incident detected' if incident_detected else 'Normal activity'}",
             'incident_detected': incident_detected,
             'incident_type': incident_type,
-            'confidence': random.uniform(0.7, 0.95) if incident_detected else random.uniform(0.1, 0.3),
             'frame_shape': frame.shape if frame is not None else (480, 640, 3)
         }
     
     def send_alert_email(self, analysis_result, video_frames=None):
         """Send email alert with analysis results and optional video"""
+        # If using remote API, send alert via server
+        if self.use_remote_api and self.api_client:
+            return self._send_alert_remote(analysis_result, video_frames)
+        
+        # Local email sending
         if not EMAIL_AVAILABLE:
             logger.warning("Email functionality not available, logging alert instead")
             logger.warning(f"🚨 ALERTE SÉCURITÉ: {analysis_result['analysis']}")
@@ -396,24 +509,22 @@ class VideoAnalyzer:
             
             # Prepare incident data
             incident_data = {
-                'risk_level': 'HIGH' if analysis_result.get('incident_detected', False) else 'MEDIUM',
+                'risk_level': 'HIGH' if analysis_result.get('incident_detected', False) else 'LOW',
                 'frame_count': analysis_result.get('frame_count', 0),
-                'confidence': analysis_result.get('confidence', 0.0),
                 'analysis': analysis_result.get('analysis', ''),
                 'incident_type': analysis_result.get('incident_type', '')
             }
             
             # Create alert message in French
+            from datetime import datetime
+            timestamp_obj = datetime.fromisoformat(analysis_result['timestamp'])
+            formatted_time = timestamp_obj.strftime('%H:%M:%S - %d/%m/%Y')
+            
             message = f"""
-INCIDENT DE SÉCURITÉ DÉTECTÉ
+🚨 ALERTE SÉCURITÉ VIGINT
 
-Heure: {analysis_result['timestamp']}
-Image: {analysis_result['frame_count']}
-Incident détecté: {analysis_result.get('incident_detected', False)}
+Heure: {formatted_time}
 Type d'incident: {analysis_result.get('incident_type', 'Non spécifié')}
-
-Ceci est une alerte automatique du système de sécurité Vigint.
-Veuillez examiner immédiatement les preuves vidéo ci-jointes.
 """
             
             # Send alert with video if frames are available
@@ -432,6 +543,65 @@ Veuillez examiner immédiatement les preuves vidéo ci-jointes.
         except Exception as e:
             logger.error(f"Error sending email alert: {e}")
             logger.warning(f"🚨 SECURITY ALERT (email failed): {analysis_result['analysis']}")
+            return False
+    
+    def _send_alert_remote(self, analysis_result, video_frames=None):
+        """Send alert via remote server"""
+        try:
+            # Create video path if frames provided
+            video_path = None
+            if video_frames:
+                import tempfile
+                # Save frames as temporary video
+                temp_video = tempfile.NamedTemporaryFile(suffix='.mp4', delete=False)
+                video_path = temp_video.name
+                temp_video.close()
+                
+                # Create video from frames
+                import cv2
+                if video_frames and len(video_frames) > 0:
+                    # Extract actual frame from frame_info dict if needed
+                    first_frame = video_frames[0]
+                    if isinstance(first_frame, dict):
+                        first_frame = first_frame['frame']
+                    
+                    height, width = first_frame.shape[:2]
+                    fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+                    out = cv2.VideoWriter(video_path, fourcc, self.buffer_fps, (width, height))
+                    
+                    for frame_info in video_frames:
+                        # Handle both dict and raw frame formats
+                        frame = frame_info['frame'] if isinstance(frame_info, dict) else frame_info
+                        out.write(frame)
+                    
+                    out.release()
+                    logger.info(f"Created temporary video: {video_path}")
+            
+            # Send alert to server
+            risk_level = 'HIGH' if analysis_result.get('incident_detected', False) else 'LOW'
+            result = self.api_client.send_security_alert(
+                analysis=analysis_result.get('analysis', ''),
+                risk_level=risk_level,
+                video_path=video_path
+            )
+            
+            # Clean up temporary file
+            if video_path and os.path.exists(video_path):
+                try:
+                    os.unlink(video_path)
+                except:
+                    pass
+            
+            if result.get('success'):
+                logger.info("✅ Alert sent via server successfully")
+                return True
+            else:
+                logger.warning(f"Server alert failed: {result.get('error', 'Unknown error')}")
+                return False
+                
+        except Exception as e:
+            logger.error(f"Failed to send alert via server: {e}")
+            logger.warning(f"🚨 SECURITY ALERT (server failed): {analysis_result['analysis']}")
             return False
     
     def process_video_stream(self, rtsp_url):
@@ -542,6 +712,11 @@ Veuillez examiner immédiatement les preuves vidéo ci-jointes.
                 logger.warning("No frames in buffer for analysis")
                 return
             
+            # IMPORTANT: Capture frames BEFORE analysis to ensure video matches what Gemini sees
+            # Get recent frames first (10 seconds of context)
+            captured_frames = self._get_recent_frames(duration_seconds=10)
+            logger.warning(f"Captured {len(captured_frames)} frames for video evidence")
+            
             # Get the latest frame for AI analysis
             latest_frame_info = self.frame_buffer[-1]
             
@@ -607,11 +782,11 @@ Veuillez examiner immédiatement les preuves vidéo ci-jointes.
                     self.last_incident_time = current_time
                     self.last_incident_hash = incident_signature
                     
-                    # Get ALL recent frames for smooth video evidence
-                    video_frames = self._get_recent_frames(duration_seconds=10)
+                    # Use pre-captured frames from analysis time (ensures video matches Gemini analysis)
+                    video_frames = captured_frames
                     
-                    logger.warning(f"📹 Creating video from {len(video_frames)} buffered frames")
-                    logger.warning("🎬 Video will show continuous footage, not just analyzed frames")
+                    logger.warning(f"📹 Using {len(video_frames)} pre-captured frames from analysis time")
+                    logger.warning("🎬 Video shows exact footage that Gemini analyzed (no timing mismatch)")
                     logger.warning(f"📧 Sending NEW incident alert (visual hash cached: {incident_hash[:8]}...)")
                     logger.warning(f"   Cooldowns: Local {self.incident_cooldown}s | Global 300s (visual deduplication)")
                     

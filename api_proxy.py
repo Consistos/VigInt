@@ -44,18 +44,56 @@ werkzeug_logger.setLevel(logging.WARNING)
 
 # Configure Gemini AI (server-side only)
 gemini_api_key = config.gemini_api_key
+gemini_model_short = None
+gemini_model_long = None
+
 if gemini_api_key:
     genai.configure(
         api_key=gemini_api_key,
         transport='rest'
     )
-    # Use Flash-Lite for short buffer (quick initial analysis) and Flash for long buffer (detailed analysis)
-    gemini_model_short = genai.GenerativeModel('gemini-2.5-flash-lite')  # Short buffer: fast, lightweight
-    gemini_model_long = genai.GenerativeModel('gemini-2.5-flash')  # Long buffer: detailed analysis
-    logger.info("Gemini AI configured on server: 2.5 Flash-Lite for short buffer, 2.5 Flash for long buffer")
+    
+    # Try different model versions with fallback
+    short_model_versions = [
+        'gemini-2.0-flash-exp',
+        'gemini-2.0-flash',
+        'gemini-1.5-flash',
+        'gemini-flash-latest',
+        'gemini-pro'
+    ]
+    
+    long_model_versions = [
+        'gemini-2.0-flash',
+        'gemini-1.5-flash',
+        'gemini-flash-latest',
+        'gemini-pro'
+    ]
+    
+    # Initialize short buffer model
+    for model_name in short_model_versions:
+        try:
+            gemini_model_short = genai.GenerativeModel(model_name)
+            logger.info(f"✅ Gemini short buffer model initialized: {model_name}")
+            break
+        except Exception as e:
+            logger.warning(f"Failed to load short buffer model {model_name}: {e}")
+            continue
+    
+    # Initialize long buffer model
+    for model_name in long_model_versions:
+        try:
+            gemini_model_long = genai.GenerativeModel(model_name)
+            logger.info(f"✅ Gemini long buffer model initialized: {model_name}")
+            break
+        except Exception as e:
+            logger.warning(f"Failed to load long buffer model {model_name}: {e}")
+            continue
+    
+    if not gemini_model_short or not gemini_model_long:
+        logger.error("❌ Failed to initialize Gemini models")
+    else:
+        logger.info("✅ Gemini AI configured successfully on server")
 else:
-    gemini_model_short = None
-    gemini_model_long = None
     logger.warning("Gemini API key not configured")
 
 # Email configuration (server-side only)

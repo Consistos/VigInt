@@ -24,8 +24,10 @@ class APIClient:
             api_key: API key for authentication (from config if not provided)
             base_url: Base URL of API server (from config if not provided)
         """
+        import os
         self.base_url = base_url or config.api_server_url or "http://localhost:5002"
-        self.api_key = api_key or config.secret_key
+        # Use VIGINT_API_KEY from environment for client authentication
+        self.api_key = api_key or os.getenv('VIGINT_API_KEY') or config.secret_key
         self.session = requests.Session()
         self.session.headers.update({
             'X-API-Key': self.api_key,
@@ -143,21 +145,22 @@ class APIClient:
         return self._make_request('POST', '/api/video/analyze', json=data)
     
     def add_frame_to_buffer(self, client_id: str, frame_data: str, 
-                          timestamp: Optional[str] = None) -> Dict[str, Any]:
+                          timestamp: Optional[str] = None, frame_count: int = 0) -> Dict[str, Any]:
         """
         Add frame to client's buffer
         
         Args:
-            client_id: Client identifier
+            client_id: Client identifier (not used - server gets from auth)
             frame_data: Base64-encoded frame data
             timestamp: Frame timestamp
+            frame_count: Frame number
             
         Returns:
             Buffer status
         """
         data = {
-            'client_id': client_id,
-            'frame': frame_data,
+            'frame_data': frame_data,  # Server expects 'frame_data' not 'frame'
+            'frame_count': frame_count,
             'timestamp': timestamp
         }
         
