@@ -561,19 +561,44 @@ Type d'incident: {analysis_result.get('incident_type', 'Non spécifié')}
                 
                 # Create video from frames
                 import cv2
+                import base64
+                import numpy as np
+                
                 if video_frames and len(video_frames) > 0:
-                    # Extract actual frame from frame_info dict if needed
+                    # Decode first frame to get dimensions
                     first_frame = video_frames[0]
                     if isinstance(first_frame, dict):
-                        first_frame = first_frame['frame']
+                        # Handle base64-encoded frame_data (distributed mode)
+                        if 'frame_data' in first_frame:
+                            frame_data = base64.b64decode(first_frame['frame_data'])
+                            first_frame = cv2.imdecode(np.frombuffer(frame_data, dtype=np.uint8), cv2.IMREAD_COLOR)
+                        # Handle decoded frame (local mode)
+                        elif 'frame' in first_frame:
+                            first_frame = first_frame['frame']
+                        else:
+                            raise ValueError("Frame dict has neither 'frame' nor 'frame_data'")
                     
                     height, width = first_frame.shape[:2]
                     fourcc = cv2.VideoWriter_fourcc(*'mp4v')
                     out = cv2.VideoWriter(video_path, fourcc, self.buffer_fps, (width, height))
                     
                     for frame_info in video_frames:
-                        # Handle both dict and raw frame formats
-                        frame = frame_info['frame'] if isinstance(frame_info, dict) else frame_info
+                        # Handle different frame formats
+                        if isinstance(frame_info, dict):
+                            # Base64-encoded (distributed mode)
+                            if 'frame_data' in frame_info:
+                                frame_data = base64.b64decode(frame_info['frame_data'])
+                                frame = cv2.imdecode(np.frombuffer(frame_data, dtype=np.uint8), cv2.IMREAD_COLOR)
+                            # Decoded frame (local mode)
+                            elif 'frame' in frame_info:
+                                frame = frame_info['frame']
+                            else:
+                                logger.warning("Skipping frame with unknown format")
+                                continue
+                        else:
+                            # Raw numpy array
+                            frame = frame_info
+                        
                         out.write(frame)
                     
                     out.release()
