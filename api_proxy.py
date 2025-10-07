@@ -717,6 +717,9 @@ def analyze_frame_for_security(frame_base64, frame_count, buffer_type="short"):
                 except Exception:
                     pass
         
+        # Determine risk level based on incident detection
+        risk_level = "HIGH" if has_security_incident else "LOW"
+        
         return {
             'analysis': analysis_text,
             'has_security_incident': has_security_incident,
