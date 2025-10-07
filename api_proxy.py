@@ -47,54 +47,70 @@ gemini_api_key = config.gemini_api_key
 gemini_model_short = None
 gemini_model_long = None
 
-if gemini_api_key:
-    genai.configure(
-        api_key=gemini_api_key,
-        transport='rest'
-    )
+def initialize_gemini_models():
+    """Initialize Gemini models with fallback - called lazily to avoid startup crashes"""
+    global gemini_model_short, gemini_model_long
     
-    # Try different model versions with fallback
-    short_model_versions = [
-        'gemini-2.0-flash-exp',
-        'gemini-2.0-flash',
-        'gemini-1.5-flash',
-        'gemini-flash-latest',
-        'gemini-pro'
-    ]
+    if not gemini_api_key:
+        logger.warning("Gemini API key not configured")
+        return False
     
-    long_model_versions = [
-        'gemini-2.0-flash',
-        'gemini-1.5-flash',
-        'gemini-flash-latest',
-        'gemini-pro'
-    ]
-    
-    # Initialize short buffer model
-    for model_name in short_model_versions:
-        try:
-            gemini_model_short = genai.GenerativeModel(model_name)
-            logger.info(f"✅ Gemini short buffer model initialized: {model_name}")
-            break
-        except Exception as e:
-            logger.warning(f"Failed to load short buffer model {model_name}: {e}")
-            continue
-    
-    # Initialize long buffer model
-    for model_name in long_model_versions:
-        try:
-            gemini_model_long = genai.GenerativeModel(model_name)
-            logger.info(f"✅ Gemini long buffer model initialized: {model_name}")
-            break
-        except Exception as e:
-            logger.warning(f"Failed to load long buffer model {model_name}: {e}")
-            continue
-    
-    if not gemini_model_short or not gemini_model_long:
-        logger.error("❌ Failed to initialize Gemini models")
-    else:
-        logger.info("✅ Gemini AI configured successfully on server")
-else:
-    logger.warning("Gemini API key not configured")
+    try:
+        genai.configure(
+            api_key=gemini_api_key,
+            transport='rest'
+        )
+        
+        # Try different model versions with fallback
+        short_model_versions = [
+            'gemini-1.5-flash',
+            'gemini-1.5-flash-latest',
+            'gemini-flash',
+            'gemini-pro'
+        ]
+        
+        long_model_versions = [
+            'gemini-1.5-pro',
+            'gemini-1.5-flash',
+            'gemini-pro'
+        ]
+        
+        # Initialize short buffer model
+        for model_name in short_model_versions:
+            try:
+                gemini_model_short = genai.GenerativeModel(model_name)
+                logger.info(f"✅ Gemini short buffer model initialized: {model_name}")
+                break
+            except Exception as e:
+                logger.warning(f"Failed to load short buffer model {model_name}: {e}")
+                continue
+        
+        # Initialize long buffer model
+        for model_name in long_model_versions:
+            try:
+                gemini_model_long = genai.GenerativeModel(model_name)
+                logger.info(f"✅ Gemini long buffer model initialized: {model_name}")
+                break
+            except Exception as e:
+                logger.warning(f"Failed to load long buffer model {model_name}: {e}")
+                continue
+        
+        if not gemini_model_short or not gemini_model_long:
+            logger.error("❌ Failed to initialize Gemini models")
+            return False
+        else:
+            logger.info("✅ Gemini AI configured successfully on server")
+            return True
+            
+    except Exception as e:
+        logger.error(f"❌ Critical error during Gemini initialization: {e}")
+        return False
+
+# Try to initialize but don't crash if it fails
+try:
+    initialize_gemini_models()
+except Exception as e:
+    logger.error(f"❌ Gemini initialization failed but server will continue: {e}")
 
 # Email configuration (server-side only)
 email_config = {
