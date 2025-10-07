@@ -442,14 +442,16 @@ class VideoAnalyzer:
             )
             
             # Parse server response
+            # Server returns 'has_security_incident', map it to 'incident_detected' for consistency
             analysis_result = {
                 'timestamp': datetime.now().isoformat(),
                 'frame_count': self.frame_count,
                 'analysis': result.get('analysis', ''),
-                'incident_detected': result.get('incident_detected', False),
+                'incident_detected': result.get('has_security_incident', result.get('incident_detected', False)),
                 'incident_type': result.get('incident_type', ''),
                 'frame_shape': frame.shape,
-                'token_usage': result.get('token_usage', {})
+                'token_usage': result.get('token_usage', {}),
+                'has_security_incident': result.get('has_security_incident', False)  # Keep both for compatibility
             }
             
             logger.info(f"Frame {self.frame_count} analyzed via server")
