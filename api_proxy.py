@@ -82,6 +82,10 @@ video_config = {
 # Global frame buffers for each client (keyed by client ID)
 client_frame_buffers = {}
 
+# Multi-source frame buffers (keyed by client_id -> source_id -> deque)
+multi_source_buffers = {}
+multi_source_buffer_lock = threading.Lock()
+
 # Temporary file management
 temp_video_files = set()  # Track temporary video files for cleanup
 temp_file_lock = threading.Lock()  # Thread-safe access to temp files set
@@ -335,6 +339,27 @@ def get_client_buffer(client_id):
     return client_frame_buffers[client_id]
 
 
+def get_multi_source_buffer(client_id, source_id):
+    """Get or create frame buffer for a specific video source"""
+    with multi_source_buffer_lock:
+        if client_id not in multi_source_buffers:
+            multi_source_buffers[client_id] = {}
+        
+        if source_id not in multi_source_buffers[client_id]:
+            max_frames = video_config['long_buffer_duration'] * video_config['analysis_fps']
+            multi_source_buffers[client_id][source_id] = deque(maxlen=max_frames)
+        
+        return multi_source_buffers[client_id][source_id]
+
+
+def get_all_client_sources(client_id):
+    """Get all video sources for a client"""
+    with multi_source_buffer_lock:
+        if client_id not in multi_source_buffers:
+            return []
+        return list(multi_source_buffers[client_id].keys())
+
+
 def validate_video_format(video_format):
     """Validate video format and return appropriate codec"""
     format_codecs = {
@@ -582,14 +607,9 @@ def analyze_frame_for_security(frame_base64, frame_count, buffer_type="short"):
         prompt = f"""
         Analyze the provided video carefully for security incidents in a retail environment, with special focus on shoplifting behavior. Pay particular attention to:
         1. Customers taking items and concealing them (in pockets, bags, clothing)
-        2. Unusual handling of merchandise (checking for security tags, looking around suspiciously)
+        2. Unusual handling of merchandise (checking for security tags)
         3. Taking items without paying
-        4. Groups working together to distract staff while items are taken
-        5. Removing packaging or security devices
-        6. Unusual movements around high-value items
-        7. Signs of nervousness or anxiety while handling merchandise
-        
-        Your analysis must be thorough and should err on the side of detecting potential security incidents rather than missing them.
+        4. Removing packaging or security devices
         
         Return ONLY the JSON object without markdown formatting, code blocks, or additional text.
         If no incidents are detected, return the JSON with incident_detected set to false.
@@ -898,9 +918,10 @@ def analyze_frame():
         
         logger.info(f"Frame {latest_frame['frame_count']} analyzed for client {request.current_client.name}")
         
-        # If security incident detected, trigger detailed analysis
+        # If security incident detected by short buffer, trigger detailed analysis with long buffer
         if analysis_result['has_security_incident']:
-            logger.warning(f"🚨 SECURITY INCIDENT DETECTED for client {request.current_client.name}")
+            logger.warning(f"🚨 SECURITY INCIDENT DETECTED by Flash-Lite for client {request.current_client.name}")
+            logger.warning(f"   Triggering Gemini 2.5 Flash (long buffer) for confirmation...")
             
             # Get long buffer (last 10 seconds) for detailed analysis
             long_buffer_frames = video_config['long_buffer_duration'] * video_config['analysis_fps']
@@ -908,14 +929,228 @@ def analyze_frame():
             
             # Perform detailed analysis on the incident context
             detailed_analysis = analyze_incident_context(incident_frames)
-            analysis_result['detailed_analysis'] = detailed_analysis
-            analysis_result['incident_frames_count'] = len(incident_frames)
+            
+            if detailed_analysis:
+                # Check if Flash (long buffer) confirms the incident
+                incident_confirmed = detailed_analysis.get('incident_confirmed', False)
+                
+                if incident_confirmed:
+                    logger.warning(f"✅ INCIDENT CONFIRMED by Gemini 2.5 Flash (long buffer)")
+                    logger.warning(f"   Confirmation: {detailed_analysis['confirmation_count']}/{detailed_analysis['total_frames_analyzed']} frames detected incident")
+                    analysis_result['detailed_analysis'] = detailed_analysis['frames']
+                    analysis_result['incident_frames_count'] = len(incident_frames)
+                    analysis_result['flash_confirmation'] = True
+                else:
+                    logger.warning(f"❌ INCIDENT REJECTED by Gemini 2.5 Flash (long buffer)")
+                    logger.warning(f"   Flash-Lite detected incident, but Flash found no issues (0/{detailed_analysis['total_frames_analyzed']} frames)")
+                    logger.warning(f"   Email alert will NOT be sent (Flash has final decision)")
+                    # Override the short buffer decision - Flash has veto power
+                    analysis_result['has_security_incident'] = False
+                    analysis_result['detailed_analysis'] = detailed_analysis['frames']
+                    analysis_result['incident_frames_count'] = len(incident_frames)
+                    analysis_result['flash_confirmation'] = False
+                    analysis_result['flash_veto'] = True
+                    analysis_result['veto_reason'] = 'Gemini 2.5 Flash (long buffer) did not confirm incident detected by Flash-Lite'
+            else:
+                # If detailed analysis failed, fall back to short buffer decision
+                logger.warning(f"⚠️  Long buffer analysis failed, using Flash-Lite decision as fallback")
+                analysis_result['detailed_analysis'] = None
+                analysis_result['incident_frames_count'] = len(incident_frames)
+                analysis_result['flash_confirmation'] = None
         
         return jsonify(analysis_result)
         
     except Exception as e:
         logger.error(f"Error analyzing frame: {e}")
         return jsonify({'error': 'Analysis failed'}), 500
+
+
+@app.route('/api/video/multi-source/buffer', methods=['POST'])
+@require_api_key_flexible
+def add_frame_to_multi_source_buffer():
+    """Add frame to a specific video source buffer for multi-source analysis"""
+    try:
+        data = request.get_json()
+        
+        if not data or 'frame_data' not in data or 'source_id' not in data:
+            return jsonify({'error': 'Missing required fields: frame_data, source_id'}), 400
+        
+        source_id = data['source_id']
+        frame_data = data['frame_data']
+        frame_count = data.get('frame_count', 0)
+        source_name = data.get('source_name', source_id)
+        
+        # Get or create buffer for this source
+        source_buffer = get_multi_source_buffer(request.current_client.id, source_id)
+        
+        # Add frame to buffer with metadata
+        frame_info = {
+            'frame_data': frame_data,
+            'frame_count': frame_count,
+            'timestamp': datetime.now().isoformat(),
+            'source_id': source_id,
+            'source_name': source_name
+        }
+        
+        source_buffer.append(frame_info)
+        
+        return jsonify({
+            'success': True,
+            'source_id': source_id,
+            'buffer_size': len(source_buffer),
+            'frame_count': frame_count
+        })
+        
+    except Exception as e:
+        logger.error(f"Error buffering multi-source frame: {e}")
+        return jsonify({'error': 'Failed to buffer frame'}), 500
+
+
+@app.route('/api/video/multi-source/analyze', methods=['POST'])
+@require_api_key_flexible
+def analyze_multi_source():
+    """Analyze multiple video sources using dual buffer system (Flash-Lite → Flash)"""
+    start_time = time.time()
+    
+    try:
+        if not gemini_model_short:
+            return jsonify({'error': 'AI analysis not available'}), 503
+        
+        data = request.get_json()
+        source_ids = data.get('source_ids', [])
+        
+        if not source_ids:
+            # Analyze all sources for this client
+            source_ids = get_all_client_sources(request.current_client.id)
+        
+        if not source_ids:
+            return jsonify({'error': 'No video sources found'}), 400
+        
+        results = {
+            'client_name': request.current_client.name,
+            'timestamp': datetime.now().isoformat(),
+            'sources_analyzed': len(source_ids),
+            'sources': {}
+        }
+        
+        total_incidents_detected = 0
+        total_incidents_confirmed = 0
+        
+        # Analyze each source independently using dual-buffer logic
+        for source_id in source_ids:
+            source_buffer = get_multi_source_buffer(request.current_client.id, source_id)
+            
+            if len(source_buffer) == 0:
+                results['sources'][source_id] = {
+                    'error': 'No frames in buffer',
+                    'has_security_incident': False
+                }
+                continue
+            
+            # Stage 1: Analyze short buffer with Flash-Lite
+            short_buffer_frames = video_config['short_buffer_duration'] * video_config['analysis_fps']
+            recent_frames = list(source_buffer)[-short_buffer_frames:] if len(source_buffer) >= short_buffer_frames else list(source_buffer)
+            
+            if not recent_frames:
+                results['sources'][source_id] = {
+                    'error': 'Insufficient frames',
+                    'has_security_incident': False
+                }
+                continue
+            
+            # Analyze most recent frame with Flash-Lite
+            latest_frame = recent_frames[-1]
+            source_name = latest_frame.get('source_name', source_id)
+            
+            analysis_result = analyze_frame_for_security(
+                latest_frame['frame_data'],
+                latest_frame['frame_count'],
+                "short"
+            )
+            
+            if not analysis_result:
+                results['sources'][source_id] = {
+                    'error': 'Analysis failed',
+                    'has_security_incident': False
+                }
+                continue
+            
+            # Add source metadata
+            analysis_result['source_name'] = source_name
+            analysis_result['buffer_size'] = len(source_buffer)
+            
+            # Stage 2: If incident detected, confirm with Flash (long buffer)
+            if analysis_result['has_security_incident']:
+                total_incidents_detected += 1
+                logger.warning(f"🚨 INCIDENT DETECTED by Flash-Lite for source '{source_name}' (client: {request.current_client.name})")
+                logger.warning(f"   Triggering Gemini 2.5 Flash (long buffer) for confirmation...")
+                
+                # Get long buffer for detailed analysis
+                long_buffer_frames = video_config['long_buffer_duration'] * video_config['analysis_fps']
+                incident_frames = list(source_buffer)[-long_buffer_frames:] if len(source_buffer) >= long_buffer_frames else list(source_buffer)
+                
+                # Perform detailed analysis with Flash
+                detailed_analysis = analyze_incident_context(incident_frames)
+                
+                if detailed_analysis:
+                    incident_confirmed = detailed_analysis.get('incident_confirmed', False)
+                    
+                    if incident_confirmed:
+                        total_incidents_confirmed += 1
+                        logger.warning(f"✅ INCIDENT CONFIRMED by Flash for source '{source_name}'")
+                        logger.warning(f"   Confirmation: {detailed_analysis['confirmation_count']}/{detailed_analysis['total_frames_analyzed']} frames")
+                        analysis_result['detailed_analysis'] = detailed_analysis['frames']
+                        analysis_result['incident_frames_count'] = len(incident_frames)
+                        analysis_result['flash_confirmation'] = True
+                        analysis_result['incident_frames'] = incident_frames  # Include frames for video creation
+                    else:
+                        logger.warning(f"❌ INCIDENT REJECTED by Flash for source '{source_name}'")
+                        logger.warning(f"   Flash found no issues (0/{detailed_analysis['total_frames_analyzed']} frames)")
+                        # Flash vetoes the incident
+                        analysis_result['has_security_incident'] = False
+                        analysis_result['detailed_analysis'] = detailed_analysis['frames']
+                        analysis_result['incident_frames_count'] = len(incident_frames)
+                        analysis_result['flash_confirmation'] = False
+                        analysis_result['flash_veto'] = True
+                        analysis_result['veto_reason'] = 'Gemini 2.5 Flash did not confirm incident'
+                else:
+                    # Fallback to Flash-Lite decision if Flash analysis fails
+                    logger.warning(f"⚠️  Long buffer analysis failed for source '{source_name}', using Flash-Lite decision")
+                    analysis_result['detailed_analysis'] = None
+                    analysis_result['incident_frames_count'] = len(incident_frames)
+                    analysis_result['flash_confirmation'] = None
+                    analysis_result['incident_frames'] = incident_frames
+            
+            results['sources'][source_id] = analysis_result
+        
+        # Add summary
+        results['summary'] = {
+            'total_incidents_detected_by_flash_lite': total_incidents_detected,
+            'total_incidents_confirmed_by_flash': total_incidents_confirmed,
+            'total_incidents_vetoed': total_incidents_detected - total_incidents_confirmed,
+            'has_any_confirmed_incident': total_incidents_confirmed > 0
+        }
+        
+        # Calculate cost and log usage
+        processing_time = time.time() - start_time
+        cost = 0.01 * len(source_ids) + (processing_time * 0.001)
+        
+        log_api_usage(
+            api_key_id=request.current_api_key.id,
+            endpoint='/api/video/multi-source/analyze',
+            method='POST',
+            status_code=200,
+            cost=cost
+        )
+        
+        logger.info(f"Multi-source analysis completed for {len(source_ids)} sources")
+        logger.info(f"   Detected: {total_incidents_detected}, Confirmed: {total_incidents_confirmed}")
+        
+        return jsonify(results)
+        
+    except Exception as e:
+        logger.error(f"Error in multi-source analysis: {e}")
+        return jsonify({'error': 'Multi-source analysis failed'}), 500
 
 
 def send_email_with_retry(msg, video_attached, attachment_error, max_retries=3, retry_delay=2):
@@ -1411,7 +1646,7 @@ def generate_incident_summary(analysis_text, risk_level, detailed_analysis, tota
 
 
 def analyze_incident_context(frames):
-    """Analyze longer buffer for detailed incident context"""
+    """Analyze longer buffer for detailed incident context and confirm/reject incident"""
     if not frames or not gemini_model_long:
         return None
     
@@ -1424,6 +1659,8 @@ def analyze_incident_context(frames):
             key_frames = frames
         
         context_analysis = []
+        incident_detected_count = 0  # Track how many frames detected incidents
+        
         for i, frame_info in enumerate(key_frames):
             prompt = f"""
             Analyze this frame for retail security incidents, focusing on shoplifting behavior.
@@ -1447,6 +1684,7 @@ def analyze_incident_context(frames):
             ])
             
             # Parse JSON response
+            incident_detected = False
             try:
                 import json
                 response_text = response.text.strip()
@@ -1461,25 +1699,42 @@ def analyze_incident_context(frames):
                 analysis_json = json.loads(response_text)
                 analysis_text = analysis_json.get('analysis', response.text)
                 incident_type = analysis_json.get('incident_type', '')
+                incident_detected = analysis_json.get('incident_detected', False)
             except (json.JSONDecodeError, KeyError):
                 analysis_text = response.text
                 incident_type = ''
                 
-                # Try to extract incident_type from text
+                # Try to extract incident_type and incident_detected from text
                 if '"incident_type":' in response.text.lower():
                     import re
                     match = re.search(r'"incident_type":\s*"([^"]*)"', response.text)
                     if match:
                         incident_type = match.group(1)
+                
+                # Check for incident_detected in text
+                if 'incident_detected": true' in response.text.lower():
+                    incident_detected = True
+            
+            # Count incidents detected
+            if incident_detected:
+                incident_detected_count += 1
             
             context_analysis.append({
                 'frame_position': 'Start' if i == 0 else 'Middle' if i == 1 else 'End',
                 'frame_count': frame_info['frame_count'],
                 'analysis': analysis_text,
-                'incident_type': incident_type
+                'incident_type': incident_type,
+                'incident_detected': incident_detected
             })
         
-        return context_analysis
+        # Return analysis with confirmation status
+        # Flash (long buffer) confirms incident if at least one frame detected it
+        return {
+            'frames': context_analysis,
+            'incident_confirmed': incident_detected_count > 0,
+            'confirmation_count': incident_detected_count,
+            'total_frames_analyzed': len(key_frames)
+        }
         
     except Exception as e:
         logger.error(f"Error in detailed incident analysis: {e}")
@@ -2179,6 +2434,169 @@ def upload_video_sparse_ai():
         "expiration_time": expiration_time.isoformat(),
         "message": "Video uploaded successfully"
     }), 200
+
+
+# ============================================================================
+# ADMIN ENDPOINTS - For managing clients on server
+# ============================================================================
+
+def require_admin_key(f):
+    """Decorator to require admin key authentication"""
+    from functools import wraps
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        admin_key = request.headers.get('X-Admin-Key')
+        if not admin_key:
+            return jsonify({'error': 'Admin key required'}), 401
+        
+        # Admin key is the SECRET_KEY itself
+        if admin_key != config.secret_key:
+            return jsonify({'error': 'Invalid admin key'}), 401
+        
+        return f(*args, **kwargs)
+    return decorated_function
+
+
+@app.route('/admin/clients', methods=['GET'])
+@require_admin_key
+def admin_list_clients():
+    """List all clients (admin only)"""
+    try:
+        from vigint.models import Client, APIKey
+        clients = Client.query.all()
+        
+        result = []
+        for client in clients:
+            api_keys = APIKey.query.filter_by(client_id=client.id).all()
+            result.append({
+                'id': client.id,
+                'name': client.name,
+                'email': client.email,
+                'created_at': client.created_at.isoformat(),
+                'api_keys': [{
+                    'id': key.id,
+                    'is_active': key.is_active,
+                    'name': key.name,
+                    'created_at': key.created_at.isoformat()
+                } for key in api_keys]
+            })
+        
+        return jsonify({
+            'clients': result,
+            'count': len(result)
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"Failed to list clients: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/admin/clients', methods=['POST'])
+@require_admin_key
+def admin_create_client():
+    """Create a new client (admin only)"""
+    try:
+        from auth import create_client_with_api_key
+        
+        data = request.json
+        if not data or 'name' not in data or 'email' not in data:
+            return jsonify({'error': 'name and email required'}), 400
+        
+        client, api_key = create_client_with_api_key(
+            name=data['name'],
+            email=data['email']
+        )
+        
+        return jsonify({
+            'success': True,
+            'client_id': client.id,
+            'name': client.name,
+            'email': client.email,
+            'api_key': api_key,
+            'warning': 'Save this API key! It cannot be retrieved later.'
+        }), 201
+        
+    except ValueError as e:
+        return jsonify({'error': str(e)}), 400
+    except Exception as e:
+        logger.error(f"Failed to create client: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/admin/clients/<int:client_id>/revoke', methods=['POST'])
+@require_admin_key
+def admin_revoke_client(client_id):
+    """Revoke all API keys for a client (admin only)"""
+    try:
+        from vigint.models import Client, APIKey
+        from auth import revoke_api_key
+        
+        client = Client.query.get(client_id)
+        if not client:
+            return jsonify({'error': f'Client {client_id} not found'}), 404
+        
+        api_keys = APIKey.query.filter_by(client_id=client_id, is_active=True).all()
+        
+        if not api_keys:
+            return jsonify({
+                'message': f'Client {client.name} has no active API keys',
+                'revoked_count': 0
+            }), 200
+        
+        revoked_count = 0
+        for api_key in api_keys:
+            if revoke_api_key(api_key.id):
+                revoked_count += 1
+        
+        return jsonify({
+            'success': True,
+            'client_id': client_id,
+            'client_name': client.name,
+            'revoked_count': revoked_count,
+            'message': f'Revoked {revoked_count} API key(s) for {client.name}'
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"Failed to revoke client: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/admin/clients/<int:client_id>/reactivate', methods=['POST'])
+@require_admin_key
+def admin_reactivate_client(client_id):
+    """Reactivate revoked API keys for a client (admin only)"""
+    try:
+        from vigint.models import Client, APIKey
+        
+        client = Client.query.get(client_id)
+        if not client:
+            return jsonify({'error': f'Client {client_id} not found'}), 404
+        
+        revoked_keys = APIKey.query.filter_by(client_id=client_id, is_active=False).all()
+        
+        if not revoked_keys:
+            return jsonify({
+                'message': f'Client {client.name} has no revoked API keys',
+                'reactivated_count': 0
+            }), 200
+        
+        for key in revoked_keys:
+            key.is_active = True
+        
+        db.session.commit()
+        
+        return jsonify({
+            'success': True,
+            'client_id': client_id,
+            'client_name': client.name,
+            'reactivated_count': len(revoked_keys),
+            'message': f'Reactivated {len(revoked_keys)} API key(s) for {client.name}'
+        }), 200
+        
+    except Exception as e:
+        db.session.rollback()
+        logger.error(f"Failed to reactivate client: {e}")
+        return jsonify({'error': str(e)}), 500
 
 
 if __name__ == '__main__':
