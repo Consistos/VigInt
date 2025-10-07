@@ -62,17 +62,14 @@ def initialize_gemini_models():
         )
         
         # Try different model versions with fallback
-        # Use model names that work with Google's generativelanguage API
+        # Using gemini-2.5-flash as requested
         short_model_versions = [
-            'gemini-1.5-flash-8b',
-            'gemini-1.5-flash',
-            'gemini-1.5-pro',
+            'gemini-2.5-flash',
             'gemini-pro'
         ]
         
         long_model_versions = [
-            'gemini-1.5-pro',
-            'gemini-1.5-flash',
+            'gemini-2.5-flash',
             'gemini-pro'
         ]
         
