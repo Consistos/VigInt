@@ -111,13 +111,14 @@ except Exception as e:
     logger.error(f"❌ Gemini initialization failed but server will continue: {e}")
 
 # Email configuration (server-side only)
+# Read from environment variables first (for Render), then fallback to config file
 email_config = {
-    'smtp_server': config.get('Email', 'smtp_server', 'smtp.gmail.com'),
-    'smtp_port': config.getint('Email', 'smtp_port', 587),
-    'username': config.get('Email', 'username', ''),
-    'password': config.get('Email', 'password', ''),
-    'from_email': config.get('Email', 'from_email', ''),
-    'to_email': config.get('Email', 'to_email', '')
+    'smtp_server': config.email_smtp_server,
+    'smtp_port': config.email_smtp_port,
+    'username': config.email_username,
+    'password': config.email_password,
+    'from_email': config.email_from,
+    'to_email': config.email_to
 }
 
 # Video analysis configuration (server-side only)

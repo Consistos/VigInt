@@ -103,6 +103,40 @@ class Config:
         # If set, use remote API server. Otherwise, assume local deployment
         return self.get('API', 'api_server_url', None)
     
+    # Email configuration properties
+    @property
+    def email_smtp_server(self):
+        """Get SMTP server"""
+        return os.getenv('EMAIL_SMTP_SERVER') or self.get('Email', 'smtp_server', 'smtp.gmail.com')
+    
+    @property
+    def email_smtp_port(self):
+        """Get SMTP port"""
+        env_port = os.getenv('EMAIL_SMTP_PORT')
+        if env_port:
+            return int(env_port)
+        return self.getint('Email', 'smtp_port', 587)
+    
+    @property
+    def email_username(self):
+        """Get email username"""
+        return os.getenv('EMAIL_USERNAME') or self.get('Email', 'username', '')
+    
+    @property
+    def email_password(self):
+        """Get email password"""
+        return os.getenv('EMAIL_PASSWORD') or self.get('Email', 'password', '')
+    
+    @property
+    def email_from(self):
+        """Get from email address"""
+        return os.getenv('EMAIL_FROM') or self.get('Email', 'from_email', '')
+    
+    @property
+    def email_to(self):
+        """Get to email address"""
+        return os.getenv('EMAIL_TO') or self.get('Email', 'to_email', '')
+    
     # VideoAnalysis configuration properties
     @property
     def short_buffer_duration(self):
