@@ -2026,9 +2026,9 @@ La vidéo n'est pas disponible en ligne.
             },
             'video_link': {
                 'available': video_link_info is not None,
-                'private_link': video_link_info['private_link'] if video_link_info else None,
-                'video_id': video_link_info['video_id'] if video_link_info else None,
-                'expiration_time': video_link_info['expiration_time'] if video_link_info else None,
+                'video_url': video_link_info.get('video_url') if video_link_info else None,
+                'video_id': video_link_info.get('video_id') if video_link_info else None,
+                'expiration_time': video_link_info.get('expiration_time') if video_link_info else None,
                 'error': video_link_error,
                 'metadata': video_metadata,
                 'quality_rating': "High" if video_metadata and video_metadata.get('failed_frames', 0) == 0 else "Good" if video_metadata and video_metadata.get('failed_frames', 0) < 5 else "Fair",
@@ -2400,7 +2400,7 @@ def validate_video_token(video_id, token):
 @app.route('/video/<video_id>')
 def serve_video_with_token(video_id):
     """Serve a video file after validating the token (Sparse AI compatible)"""
-    from flask import abort, send_from_directory
+    from flask import abort, send_file
     
     token = request.args.get('token')
     if not token:
@@ -2414,7 +2414,14 @@ def serve_video_with_token(video_id):
     if not os.path.exists(video_path):
         abort(404, description="Video file not found on server.")
 
-    return send_from_directory(VIDEO_STORAGE_DIR, video_filename, as_attachment=False)
+    # Serve video with proper headers for browser playback
+    return send_file(
+        video_path,
+        mimetype='video/mp4',
+        as_attachment=False,
+        download_name=video_filename,
+        conditional=True  # Enable range requests for video seeking
+    )
 
 
 @app.route('/api/v1/videos/upload', methods=['POST'])
