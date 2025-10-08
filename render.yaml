@@ -46,7 +46,7 @@ services:
       - key: EMAIL_TO
         sync: false
       - key: PATH
-        value: /opt/render/project/.render/bin:$PATH
+        value: /opt/render/project/src/bin:$PATH
 
 databases:
   # PostgreSQL database for API server

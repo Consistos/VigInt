@@ -4,26 +4,24 @@
 
 set -e
 
-echo "Downloading static ffmpeg binary for video encoding..."
+echo "=== Installing FFmpeg for video encoding ==="
 
-# Create bin directory in Render's structure
-BIN_DIR="/opt/render/project/.render/bin"
-mkdir -p $BIN_DIR
+# Use current directory for bin
+BIN_DIR="$PWD/bin"
+mkdir -p "$BIN_DIR"
 
-# Download static ffmpeg binary from johnvansickle.com (trusted source for static builds)
-cd $BIN_DIR
-curl -L https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-amd64-static.tar.xz -o ffmpeg.tar.xz
+echo "Downloading static ffmpeg binary..."
+wget -q https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-amd64-static.tar.xz -O "$BIN_DIR/ffmpeg.tar.xz"
 
-# Extract
+echo "Extracting ffmpeg..."
+cd "$BIN_DIR"
 tar xf ffmpeg.tar.xz --strip-components=1
+
+# Make executable
+chmod +x ffmpeg ffprobe
 
 # Clean up
 rm ffmpeg.tar.xz
 
-# Add to PATH
-export PATH="$BIN_DIR:$PATH"
-
-echo "FFmpeg installed successfully"
-ffmpeg -version
-
-echo "FFmpeg available at: $(which ffmpeg)"
+echo "=== FFmpeg installed successfully ==="
+./ffmpeg -version | head -1
