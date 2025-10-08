@@ -12,7 +12,7 @@ import google.generativeai as genai
 import base64
 import cv2
 import numpy as np
-from datetime import datetime
+from datetime import datetime, timedelta
 import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
@@ -24,6 +24,7 @@ import shutil
 import threading
 import atexit
 from collections import deque
+import uuid
 
 
 app = Flask(__name__)
@@ -1908,64 +1909,83 @@ Ceci est une alerte automatique du système de sécurité Vigint.
         else:
             body += "\n⚠️ Preuves vidéo non disponibles\n"
         
-        # Upload video to sparse-ai.com and add private link to email
+        # Store video and generate shareable link using existing video system
         video_link_info = None
         video_link_error = None
         
         if video_path and os.path.exists(video_path):
             try:
-                from video_link_service import VideoLinkService
-                video_service = VideoLinkService()
+                import hashlib
+                import json
                 
-                # Prepare incident data for upload
-                incident_data_for_upload = {
+                # Generate unique video ID
+                video_id = str(uuid.uuid4())
+                
+                # Set expiration (48 hours for security incidents)
+                expiration_time = datetime.now() + timedelta(hours=48)
+                
+                # Save video to storage directory
+                video_filename = f"video_{video_id}.mp4"
+                permanent_path = os.path.join(VIDEO_STORAGE_DIR, video_filename)
+                shutil.copy2(video_path, permanent_path)
+                
+                # Save metadata
+                metadata = {
+                    'video_id': video_id,
+                    'client_id': request.current_client.id,
+                    'client_name': request.current_client.name,
                     'incident_type': incident_type,
                     'risk_level': risk_level,
-                    'analysis': analysis_text,
-                    'frame_count': frame_count,
-                    'confidence': 0.8 if risk_level == 'HIGH' else 0.6 if risk_level == 'MEDIUM' else 0.4
+                    'created': datetime.now().isoformat(),
+                    'expiration_time': expiration_time.isoformat(),
+                    'size_mb': os.path.getsize(permanent_path) / (1024 * 1024)
                 }
                 
-                # Upload video and get private link (48 hour expiration for security incidents)
-                upload_result = video_service.upload_video(
-                    video_path, 
-                    incident_data_for_upload, 
-                    expiration_hours=48
-                )
+                metadata_filename = f"video_{video_id}.json"
+                metadata_path = os.path.join(VIDEO_STORAGE_DIR, metadata_filename)
+                with open(metadata_path, 'w') as f:
+                    json.dump(metadata, f, indent=2)
                 
-                if upload_result['success']:
-                    video_link_info = upload_result
-                    video_size = os.path.getsize(video_path) / (1024 * 1024)  # Size in MB
-                    
-                    # Add video link to email body
-                    body += f"""
+                # Generate token for secure access
+                token_key = os.environ.get('SPARSE_AI_API_KEY') or config.secret_key
+                token_data = f"{video_id}:{expiration_time.isoformat()}:{token_key}"
+                token = hashlib.sha256(token_data.encode()).hexdigest()[:32]
+                
+                # Generate public link
+                server_url = os.getenv('RENDER_EXTERNAL_URL', 'https://vigint-api-server.onrender.com')
+                video_url = f"{server_url}/video/{video_id}?token={token}"
+                
+                video_size = os.path.getsize(permanent_path) / (1024 * 1024)  # Size in MB
+                
+                # Add video link to email body
+                body += f"""
 
 📹 PREUVES VIDÉO DISPONIBLES
-Lien privé sécurisé: {upload_result['private_link']}
+Lien vidéo sécurisé: {video_url}
 Taille du fichier: {video_size:.1f} MB
-Expiration: {upload_result['expiration_time']}
-ID Vidéo: {upload_result['video_id']}
+Expiration: {expiration_time.strftime('%Y-%m-%d %H:%M:%S')} UTC (48 heures)
+ID Vidéo: {video_id}
 
-⚠️ IMPORTANT: Ce lien est privé et sécurisé. Il expirera automatiquement dans 48 heures.
-Cliquez sur le lien pour visualiser la vidéo de l'incident.
+⚠️ IMPORTANT: Ce lien est sécurisé et expirera automatiquement dans 48 heures.
+Cliquez sur le lien pour visualiser la vidéo de l'incident dans votre navigateur.
 """
-                    logger.info(f"Video uploaded to sparse-ai.com: {upload_result['video_id']} ({video_size:.1f} MB)")
-                else:
-                    video_link_error = upload_result.get('error', 'Unknown upload error')
-                    body += f"""
-
-⚠️ Échec du téléchargement de la vidéo
-Erreur: {video_link_error}
-La vidéo n'est pas disponible en ligne.
-"""
-                    logger.error(f"Failed to upload video to sparse-ai.com: {video_link_error}")
+                
+                video_link_info = {
+                    'success': True,
+                    'video_id': video_id,
+                    'video_url': video_url,
+                    'expiration_time': expiration_time.isoformat(),
+                    'size_mb': video_size
+                }
+                
+                logger.info(f"Video stored and link generated: {video_id} ({video_size:.1f} MB)")
                     
             except Exception as e:
                 video_link_error = str(e)
-                logger.error(f"Error uploading video to sparse-ai.com: {e}")
+                logger.error(f"Error storing video: {e}")
                 body += f"""
 
-⚠️ Erreur lors du téléchargement de la vidéo
+⚠️ Erreur lors de la création du lien vidéo
 Erreur technique: {video_link_error}
 La vidéo n'est pas disponible en ligne.
 """
