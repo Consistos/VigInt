@@ -5,7 +5,7 @@ services:
     env: python
     region: oregon
     plan: starter  # Can upgrade to standard or pro
-    buildCommand: chmod +x build.sh && ./build.sh && pip install -r requirements-api-server.txt
+    buildCommand: pip install -r requirements-api-server.txt
     startCommand: gunicorn --bind 0.0.0.0:$PORT --workers 2 --threads 4 --timeout 120 api_proxy:app
     healthCheckPath: /api/health
     disk:
@@ -45,8 +45,6 @@ services:
         sync: false
       - key: EMAIL_TO
         sync: false
-      - key: PATH
-        value: /opt/render/project/src/bin:$PATH
 
 databases:
   # PostgreSQL database for API server

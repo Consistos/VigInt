@@ -1899,9 +1899,20 @@ Ceci est une alerte automatique du système de sécurité Vigint.
                 # Try to re-encode with ffmpeg for browser compatibility
                 try:
                     import subprocess
+                    
+                    # Get ffmpeg binary from imageio-ffmpeg package
+                    try:
+                        from imageio_ffmpeg import get_ffmpeg_exe
+                        ffmpeg_bin = get_ffmpeg_exe()
+                        logger.info(f"Using imageio-ffmpeg binary: {ffmpeg_bin}")
+                    except ImportError:
+                        # Fall back to system ffmpeg
+                        ffmpeg_bin = 'ffmpeg'
+                        logger.info("Using system ffmpeg")
+                    
                     # Use ffmpeg to convert mp4v to H264 (browser-compatible)
                     result = subprocess.run([
-                        'ffmpeg', '-i', video_path,
+                        ffmpeg_bin, '-i', video_path,
                         '-c:v', 'libx264',  # H264 codec
                         '-preset', 'fast',   # Fast encoding
                         '-crf', '23',        # Good quality

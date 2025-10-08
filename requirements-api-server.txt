@@ -22,6 +22,7 @@ PyJWT==2.8.0
 # Video processing
 opencv-python-headless==4.8.1.78  # Headless version for server
 numpy==1.24.3
+imageio-ffmpeg==0.4.9  # Provides ffmpeg binary for video encoding
 
 # AI/ML
 google-generativeai==0.3.2
