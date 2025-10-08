@@ -1892,10 +1892,34 @@ Ceci est une alerte automatique du système de sécurité Vigint.
                 # Set expiration (48 hours for security incidents)
                 expiration_time = datetime.now() + timedelta(hours=48)
                 
-                # Save video to storage directory
+                # Re-encode video to H264 for browser compatibility using ffmpeg
                 video_filename = f"video_{video_id}.mp4"
                 permanent_path = os.path.join(VIDEO_STORAGE_DIR, video_filename)
-                shutil.copy2(video_path, permanent_path)
+                
+                # Try to re-encode with ffmpeg for browser compatibility
+                try:
+                    import subprocess
+                    # Use ffmpeg to convert mp4v to H264 (browser-compatible)
+                    result = subprocess.run([
+                        'ffmpeg', '-i', video_path,
+                        '-c:v', 'libx264',  # H264 codec
+                        '-preset', 'fast',   # Fast encoding
+                        '-crf', '23',        # Good quality
+                        '-c:a', 'aac',       # Audio codec (if any)
+                        '-y',                # Overwrite output
+                        permanent_path
+                    ], capture_output=True, timeout=30)
+                    
+                    if result.returncode == 0:
+                        logger.info(f"Video re-encoded to H264 using ffmpeg for browser compatibility")
+                    else:
+                        # Ffmpeg failed, fall back to direct copy
+                        logger.warning(f"FFmpeg encoding failed, using original mp4v: {result.stderr.decode()[:200]}")
+                        shutil.copy2(video_path, permanent_path)
+                except (FileNotFoundError, subprocess.TimeoutExpired) as e:
+                    # Ffmpeg not available or timeout, fall back to direct copy
+                    logger.warning(f"FFmpeg not available ({e}), using original video format")
+                    shutil.copy2(video_path, permanent_path)
                 
                 # Save metadata
                 metadata = {

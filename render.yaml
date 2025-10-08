@@ -5,7 +5,7 @@ services:
     env: python
     region: oregon
     plan: starter  # Can upgrade to standard or pro
-    buildCommand: pip install -r requirements-api-server.txt
+    buildCommand: chmod +x build.sh && ./build.sh && pip install -r requirements-api-server.txt
     startCommand: gunicorn --bind 0.0.0.0:$PORT --workers 2 --threads 4 --timeout 120 api_proxy:app
     healthCheckPath: /api/health
     disk:
