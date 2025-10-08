@@ -3,9 +3,10 @@ services:
   - type: web
     name: vigint-api-server
     env: python
+    runtime: python-3.11.7
     region: oregon
     plan: starter  # Can upgrade to standard or pro
-    buildCommand: pip install -r requirements-api-server.txt
+    buildCommand: pip install --upgrade pip && pip install -r requirements-api-server.txt
     startCommand: gunicorn --bind 0.0.0.0:$PORT --workers 2 --threads 4 --timeout 120 api_proxy:app
     healthCheckPath: /api/health
     disk:
@@ -13,8 +14,6 @@ services:
       mountPath: /opt/render/project/src/uploads
       sizeGB: 10  # Adjust based on your needs
     envVars:
-      - key: PYTHON_VERSION
-        value: 3.11.0
       - key: SECRET_KEY
         generateValue: true
       - key: SPARSE_AI_API_KEY
