@@ -1863,29 +1863,6 @@ def send_security_alert():
         # Create simplified email body in French (will be finalized after video attachment)
         incident_timestamp = datetime.now()
         
-        # Attach video file directly to email if it exists and is small enough
-        video_attached = False
-        if video_path and os.path.exists(video_path):
-            try:
-                video_size_mb = os.path.getsize(video_path) / (1024 * 1024)
-                max_size_mb = video_config.get('max_email_size_mb', 20)
-                
-                if video_size_mb <= max_size_mb:
-                    with open(video_path, 'rb') as f:
-                        video_attachment = MIMEBase('application', 'octet-stream')
-                        video_attachment.set_payload(f.read())
-                    
-                    encoders.encode_base64(video_attachment)
-                    video_filename = f"incident_{incident_timestamp.strftime('%Y%m%d_%H%M%S')}.mp4"
-                    video_attachment.add_header('Content-Disposition', f'attachment; filename="{video_filename}"')
-                    msg.attach(video_attachment)
-                    video_attached = True
-                    logger.info(f"Video attached to email: {video_filename} ({video_size_mb:.1f} MB)")
-                else:
-                    logger.warning(f"Video too large to attach ({video_size_mb:.1f} MB > {max_size_mb} MB), will try upload instead")
-            except Exception as e:
-                logger.error(f"Failed to attach video to email: {e}")
-        
         # Build email body
         body = f"""
 🚨 ALERTE SÉCURITÉ VIGINT
@@ -1899,15 +1876,6 @@ ANALYSE:
 
 Ceci est une alerte automatique du système de sécurité Vigint.
 """
-        
-        if video_attached:
-            video_size_mb = os.path.getsize(video_path) / (1024 * 1024) if video_path else 0
-            video_duration = video_metadata.get('duration_seconds', 0) if video_metadata else 0
-            body += f"\n✅ Preuves vidéo jointes en pièce jointe ({video_duration:.1f} secondes, {video_size_mb:.1f} MB)\n"
-        elif video_metadata:
-            body += f"\n⚠️ Vidéo créée ({video_metadata.get('duration_seconds', 0):.1f} secondes) mais trop grande pour être jointe\n"
-        else:
-            body += "\n⚠️ Preuves vidéo non disponibles\n"
         
         # Store video and generate shareable link using existing video system
         video_link_info = None
