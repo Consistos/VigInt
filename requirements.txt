@@ -10,8 +10,7 @@ PyMySQL==1.1.0          # MySQL
 # Payment processing
 stripe==6.6.0
 
-# Email
-smtplib2==0.2.1
+# Email (smtplib is built-in to Python, no need to install)
 
 # HTTP requests
 requests==2.31.0
