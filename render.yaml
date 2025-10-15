@@ -6,14 +6,16 @@ services:
     runtime: python-3.11.0
     region: oregon
     plan: starter  # Can upgrade to standard or pro
-    buildCommand: pip install --upgrade pip && pip install -r requirements-api-server.txt
-    startCommand: python -m gunicorn --bind 0.0.0.0:$PORT --workers 2 --threads 4 --timeout 120 api_proxy:app
+    buildCommand: pip install -r requirements-api-server.txt
+    startCommand: python api_proxy.py
     healthCheckPath: /api/health
     disk:
       name: video-storage
       mountPath: /opt/render/project/src/uploads
       sizeGB: 10  # Adjust based on your needs
     envVars:
+      - key: HOST
+        value: 0.0.0.0
       - key: SECRET_KEY
         generateValue: true
       - key: SPARSE_AI_API_KEY

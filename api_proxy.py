@@ -2711,8 +2711,12 @@ if __name__ == '__main__':
     # Initialize database
     initialize_database()
     
+    # Use PORT environment variable for cloud deployments (Render, Heroku, etc.)
+    port = int(os.environ.get('PORT', config.port))
+    host = os.environ.get('HOST', config.host)
+    
     app.run(
-        host=config.host,
-        port=config.port,
+        host=host,
+        port=port,
         debug=config.debug
     )
