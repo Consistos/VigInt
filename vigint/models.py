@@ -69,16 +69,11 @@ class APIUsage(db.Model):
     timestamp = Column(DateTime, default=datetime.utcnow)
     request_data = Column(String(1000), nullable=True)  # JSON string of request details
     
-    # Token usage tracking for Gemini API calls
-    prompt_tokens = Column(Integer, nullable=True, default=0)
-    completion_tokens = Column(Integer, nullable=True, default=0)
-    total_tokens = Column(Integer, nullable=True, default=0)
-    
     # Relationships
     api_key = relationship("APIKey", back_populates="usage_records")
     
     def __repr__(self):
-        return f'<APIUsage {self.endpoint} - €{self.cost} ({self.total_tokens} tokens)>'
+        return f'<APIUsage {self.endpoint} - €{self.cost}>'
 
 
 class PaymentDetails(db.Model):
