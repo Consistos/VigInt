@@ -7,7 +7,7 @@ services:
     region: oregon
     plan: starter  # Can upgrade to standard or pro
     buildCommand: pip install --upgrade pip && pip install -r requirements-api-server.txt
-    startCommand: gunicorn --bind 0.0.0.0:$PORT --workers 2 --threads 4 --timeout 120 api_proxy:app
+    startCommand: python -m gunicorn --bind 0.0.0.0:$PORT --workers 2 --threads 4 --timeout 120 api_proxy:app
     healthCheckPath: /api/health
     disk:
       name: video-storage
