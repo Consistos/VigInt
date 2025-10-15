@@ -1,0 +1,150 @@
+
+# 2025-01-27 15:04:01.457294
++N
+
+# 2025-01-27 17:59:30.404187
++Running vigint/app.py, I have an authentication error, but the RSTP stream does not seem to require it, as I am able to open it in VLC. 
+
+# 2025-01-27 18:03:47.574937
++n
+
+# 2025-01-27 18:04:29.376986
++I now have the full log, but don't need to:   0x15685ad30 INFO            videodecoder gstvideodecoder.c:1636:gst_video_decoder_sink_event_default:<avdec_h264-0> upstream tags: taglist, video-codec=(string)"H.264\ \(Main\ Profile\)", minimum-bitrate=(uint)638481, maximum-bitrate=(uint)1310289, bitrate=(uint)3025752;
++0:00:03.750002209 59305    0x15685ad30 INFO            videodecoder gstvideodecoder.c:1636:gst_video_decoder_sink_event_default:<avdec_h264-0> upstream tags: taglist, video-codec=(string)"H.264\ \(Main\ Profile\)", minimum-bitrate=(uint)638481, maximum-bitrate=(uint)1310289, bitrate=(uint)2850809;
++0:00:03.752285709 59305    0x15685ad30 INFO            videodecoder gstvideodecoder.c:1636:gst_video_decoder_sink_event_default:<avdec_h264-0> upstream tags: taglist, video-codec=(string)"H.264\ \(Main\ Profile\)", minimum-bitrate=(uint)638481, maximum-bitrate=(uint)1310289, bitrate=(uint)2699220;
++0:00:03.754369084 59305    0x15685ad30 INFO            videodecoder gstvideodecoder.c:1636:gst_video_decoder_sink_event_default:<avdec_h264-0> upstream tags: taglist, video-codec=(string)"H.264\ \(Main\ Profile\)", minimum-bitrate=(uint)638481, maximum-bitrate=(uint)1310289, bitrate=(uint)2599206;
++0:00:03.756575167 59305    0x15685ad30 INFO            videodecoder gstvideodecoder.c:1636:gst_video_decoder_sink_event_default:<avdec_h264-0> upstream tags: taglist, video-codec=(string)"H.264\ \(Main\ Profile\)", minimum-bitrate=(uint)585254, maximum-bitrate=(uint)1310289, bitrate=(uint)2464943;
++0:00:03.758501542 59305    0x15685ad30 INFO            videodecoder gstvideodecoder.c:1636:gst_video_decoder_sink_event_default:<avdec_h264-0> upstream tags: taglist, video-codec=(string)"H.264\ \(Main\ Profile\)", minimum-bitrate=(uint)585254, maximum-bitrate=(uint)1310289, bitrate=(uint)2370719;
++0:00:03.760520125 59305    0x15685ad30 INFO            videodecoder gstvideodecoder.c:1636:gst_video_decoder_sink_event_default:<avdec_h264-0> upstream tags: taglist, video-codec=(string)"H.264\ \(Main\ Profile\)", minimum-bitrate=(uint)585254, maximum-bitrate=(uint)1310289, bitrate=(uint)2283279;
++0:00:03.762548959 59305    0x15685ad30 INFO            videodecoder gstvideodecoder.c:1636:gst_video_decoder_sink_event_default:<avdec_h264-0> upstream tags: taglist, video-codec=(string)"H.264\ \(Main\ Profile\)", minimum-bitrate=(uint)585254, maximum-bitrate=(uint)1310289, bitrate=(uint)2224775;
++0:00:03.764958292 59305    0x15685ad30 INFO            videodecoder gstvideodecoder.c:1636:gst_video_decoder_sink_event_default:<avdec_h264-0> upstream tags: taglist, video-codec=(string)"H.264\ \(Main\ Profile\)", minimum-bitrate=(uint)584775, maximum-bitrate=(uint)1310289, bitrate=(uint)2138459;
++0:00:03.766886792 59305    0x15685ad30 INFO            videodecoder gstvideodecoder.c:1636:gst_video_decoder_sink_event_default:<avdec_h264-0> upstream tags: taglist, video-codec=(string)"H.264\ \(Main\ Profile\)", minimum-bitrate=(uint)584775, maximum-bitrate=(uint)1310289, bitrate=(uint)2077198;
++0:00:03.768765709 59305    0x15685ad30 INFO            videodecoder gstvideodecoder.c:1636:gst_video_decoder_sink_event_default:<avdec_h264-0> upstream tags: taglist, video-codec=(string)"H.264\ \(Main\ Profile\)", minimum-bitrate=(uint)584775, maximum-bitrate=(uint)1310289, bitrate=(uint)2019648;
++0:00:03.772647792 59305    0x15685ad30 INFO            videodecoder gstvideodecoder.c:1636:gst_video_decoder_sink_event_default:<avdec_h264-0> upstream tags: taglist, video-codec=(string)"H.264\ \(Main\ Profile\)", minimum-bitrate=(uint)584775, maximum-bitrate=(uint)1310289, bitrate=(uint)1923096;
++0:00:03.774248542 59305    0x15685ad30 INFO            videodecoder gstvideodecoder.c:1636:gst_video_decoder_sink_event_default:<avdec_h264-0> upstream tags: taglist, video-codec=(string)"H.264\ \(Main\ Profile\)", minimum-bitrate=(uint)584775, maximum-bitrate=(uint)1310289, bitrate=(uint)1879031;
++0:00:03.880697834 59305    0x15685ad30 INFO            videodecoder gstvideodecoder.c:1636:gst_video_decoder_sink_event_default:<avdec_h264-0> upstream tags: taglist, video-codec=(string)"H.264\ \(Main\ Profile\)", minimum-bitrate=(uint)584775, maximum-bitrate=(uint)1310289, bitrate=(uint)1840035;
++0:00:03.883526292 59305    0x15685ad30 INFO            videodecoder gstvideodecoder.c:1636:gst_video_decoder_sink_event_default:<avdec_h264-0> upstream tags: taglist, video-codec=(string)"H.264\ \(Main\ Profile\)", minimum-bitrate=(uint)584775, maximum-bitrate=(uint)1318441, bitrate=(uint)1819973;
++0:00:03.886464709 59305    0x15685ad30 INFO            videodecoder gstvideodecoder.c:1636:gst_video_decoder_sink_event_default:<avdec_h264-0> upstream tags: taglist, video-codec=(string)"H.264\ \(Main\ Profile\)", minimum-bitrate=(uint)474006, maximum-bitrate=(uint)1318441, bitrate=(uint)1770123;
++0:00:03.963142250 59305    0x15685ad30 INFO            videodecoder gstvideodecoder.c:1636:gst_video_decoder_sink_event_default:<avdec_h264-0> upstream tags: taglist, video-codec=(string)"H.264\ \(Main\ Profile\)", minimum-bitrate=(uint)474006, maximum-bitrate=(uint)1318441, bitrate=(uint)1701156;
++0:00:03.976912959 59305    0x15685ad30 INFO            videodecoder gstvideodecoder.c:1636:gst_video_decoder_sink_event_default:<avdec_h264-0> upstream tags: taglist, video-codec=(string)"H.264\ \(Main\ Profile\)", minimum-bitrate=(uint)474006, maximum-bitrate=(uint)1318441, bitrate=(uint)1646874;
++0:00:04.119582125 59305    0x15685ad30 INFO            videodecoder gstvideodecoder.c:1636:gst_video_decoder_sink_event_default:<avdec_h264-0> upstream tags: taglist, video-codec=(string)"H.264\ \(Main\ Profile\)", minimum-bitrate=(uint)474006, maximum-bitrate=(uint)1318441, bitrate=(uint)1606851;
++0:00:04.125135417 59305    0x15685ad30 INFO            videodecoder gstvideodecoder.c:1636:gst_video_decoder_sink_event_default:<avdec_h264-0> upstream tags: taglist, video-codec=(string)"H.264\ \(Main\ Profile\)", minimum-bitrate=(uint)474006, maximum-bitrate=(uint)1335704, bitrate=(uint)1598876;
++0:00:04.134411875 59305    0x15685ad30 INFO            videodecoder gstvideodecoder.c:1636:gst_video_decoder_sink_event_default:<avdec_h264-0> upstream tags: taglist, video-codec=(string)"H.264\ \(Main\ Profile\)", minimum-bitrate=(uint)474006, maximum-bitrate=(uint)1335704, bitrate=(uint)1562843;
++0:00:04.219406709 59305    0x15685ad30 INFO            videodecoder gstvideodecoder.c:1636:gst_video_decoder_sink_event_default:<avdec_h264-0> upstream tags: taglist, vid
+
+# 2025-01-27 18:04:50.617904
++N
+
+# 2025-01-27 18:05:46.275956
++I should see the Gemini answer that analyse the video I send, not the stream log.
+
+# 2025-01-27 18:29:26.230453
++Analyzing last 10 seconds of video...
++Making LLM inference request with video data...
++DNS resolution error (attempt 1/3): Timeout of 60.0s exceeded, last exception: 503 DNS resolution failed for generativelanguage.googleapis.com:443: C-ares status is not ARES_SUCCESS qtype=SRV name=_grpclb._tcp.generativelanguage.googleapis.com: DNS query cancelled
++Retrying in 5 seconds...
++Making LLM inference request with video data...
++DNS resolution error (attempt 2/3): Timeout of 60.0s exceeded, last exception: 503 DNS resolution failed for generativelanguage.googleapis.com:443: C-ares status is not ARES_SUCCESS qtype=SRV name=_grpclb._tcp.generativelanguage.googleapis.com: DNS query cancelled
++Retrying in 5 seconds...
++Making LLM inference request with video data...
++DNS resolution error (attempt 3/3): Timeout of 60.0s exceeded, last exception: 503 DNS resolution failed for generativelanguage.googleapis.com:443: C-ares status is not ARES_SUCCESS qtype=A name=generativelanguage.googleapis.com is_balancer=0: DNS query cancelled
++Max retries reached. Returning empty result.
++Analysis result: {}
+
+# 2025-01-27 18:35:43.125149
++N
+
+# 2025-01-27 18:35:47.370508
++0x115dfa6d0 INFO        GST_ERROR_SYSTEM gstelement.c:2282:gst_element_message_full_with_details:<src> posting message: Internal data stream error.
+
+# 2025-01-27 18:38:00.391751
++/add app.py
+
+# 2025-01-27 18:38:06.408138
++N
+
+# 2025-01-27 18:38:16.654943
++/add vigint/app.py
+
+# 2025-01-27 18:38:21.663389
++0x115dfa6d0 INFO        GST_ERROR_SYSTEM gstelement.c:2282:gst_element_message_full_with_details:<src> posting message: Internal data stream error.
+
+# 2025-01-27 18:47:49.454522
++n
+
+# 2025-01-27 18:48:19.627443
++I see logs of Gstreamer but not the Gemini answer.
+
+# 2025-01-27 18:52:46.199691
++It now outputs raw video (e.g. '\xdd{N\xe6\x87u\xd5\r\xdc\x1^').
+
+# 2025-01-27 18:57:02.915141
++It now output "...ived frame: (480, 854, 3)
++Received frame: (480, 854, 3)
++Received frame: (480, 854, 3)
++Received frame: (480, 854, 3)
++Received frame: (480, 854, 3)
++0:00:06.845212542 63512    0x1245c4190 INFO            videodecoder gstvideodecoder.c:1636:gst_video_decoder_sink_event_default:<avdec_h264-0> upstream tags: taglist, video-codec=(string)"H.264\ \(Main\ Profile\)", minimum-bitrate=(uint)208111, maximum-bitrate=(uint)25838482, bitrate=(uint)1605066;
++Received frame: (480, 854, 3)
++Received frame: (480, 854, 3)
++Received frame: (480, 854, 3)" and raw bytes.
+
+# 2025-01-28 14:32:17.617623
++n
+
+# 2025-01-28 14:33:11.212655
++How to do 'export GEMINI_API_KEY=...' in fish?
+
+# 2025-01-28 14:33:46.298655
++N
+
+# 2025-01-28 14:33:50.398609
++How to do 'export GEMINI_API_KEY=...' in fish?
+
+# 2025-01-28 14:34:23.445407
++Y
+
+# 2025-01-28 14:36:30.887232
++I have this error, but can access the RSTP stream in VLC:File "/Users/david2/dev/Vigint/vigint/app.py", line 658, in <module>
++    main()
++  File "/Users/david2/dev/Vigint/vigint/app.py", line 565, in main
++    cap = connect_to_stream(RTSP_URL)
++          ^^^^^^^^^^^^^^^^^^^^^^^^^^^
++  File "/Users/david2/dev/Vigint/vigint/app.py", line 333, in connect_to_stream
++    raise ConnectionError(f"Could not verify stream: {e}")
++ConnectionError: Could not verify stream: Stream verification failed: [rtsp @ 0x15962f050] method SETUP failed: 403 Forbidden
++rtsp://wowza-user:wowza-password@807e9439d5ca.entrypoint.cloud.wowza.com:1935/app-rC94792j/068b9c9a_stream2: Server returned 403 Forbidden (access denied)
+
+# 2025-01-28 14:37:06.341906
++"
+
+# 2025-01-28 14:37:09.179369
++yes
+
+# 2025-01-28 14:41:38.155926
++File "/Users/david2/dev/Vigint/vigint/app.py", line 667, in <module>
++    main()
++  File "/Users/david2/dev/Vigint/vigint/app.py", line 574, in main
++    cap = connect_to_stream(RTSP_URL)
++          ^^^^^^^^^^^^^^^^^^^^^^^^^^^
++  File "/Users/david2/dev/Vigint/vigint/app.py", line 570, in connect_to_stream
++    raise ConnectionError(f"Could not establish stable connection to stream: {url}")
++ConnectionError: Could not establish stable connection to stream: rtsp://807e9439d5ca.entrypoint.cloud.wowza.com:1935/app-rC94792j/068b9c9a_stream2
+
+# 2025-01-28 14:47:35.743963
++There is still a "ConnectionError: Could not establish stable connection to stream". If necessary, change the pipeline entirely.
+
+# 2025-01-29 11:02:04.779202
++"Error: Could not verify stream: Stream verification failed: [rtsp @ 0x150913220] method SETUP failed: 403 Forbidden
++rtsp://wowza-user:wowza-password@807e9439d5ca.entrypoint.cloud.wowza.com:1935/app-rC94792j/068b9c9a_stream2: Server returned 403 Forbidden (access denied)
++"
+
+# 2025-01-29 11:06:23.843616
++"Verifying stream with FFmpeg...
++FFmpeg probe failed: 
++Attempting to use VLC stream proxy...
++Starting VLC stream proxy...
++VLC stream proxy ready!
++Error verifying stream: not enough values to unpack (expected 3, got 2)
++Error: Could not verify stream: not enough values to unpack (expected 3, got 2)
++Waiting 30 seconds before trying again..."

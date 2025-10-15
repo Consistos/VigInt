@@ -1,0 +1,15 @@
+{
+  "video_id": "2806e1c2-7522-4fb8-b15c-dfcdfcd3ad94",
+  "upload_timestamp": "2025-09-25T15:27:59.261167",
+  "expiration_time": "2025-09-27T15:27:59.260511",
+  "source": "vigint-security-system",
+  "type": "security_incident",
+  "file_hash": "de6678ba5e2b848e847e042caee01f29de4333c8d4ffb235a270a4c1e2d9a290",
+  "original_path": "/var/folders/7m/j0l91y0x66vc622xn6h1m7g80000gv/T/vigint_incident_jj952r5a.mp4",
+  "local_path": "local_videos/incident_HIGH_20250925_152759_2806e1c2.mp4",
+  "incident_type": "test_email_hybrid",
+  "risk_level": "HIGH",
+  "confidence": 0.9,
+  "frame_count": 25,
+  "analysis": "Testing email integration with hybrid video service"
+}

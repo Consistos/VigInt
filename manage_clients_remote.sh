@@ -3,7 +3,7 @@
 # Usage: ./manage_clients_remote.sh <command> [args]
 
 # Configuration
-SERVER_URL="${VIGINT_SERVER_URL:-https://vigint-api-server.onrender.com}"
+SERVER_URL="${VIGINT_SERVER_URL:-https://vigint.onrender.com}"
 ADMIN_KEY="${VIGINT_ADMIN_KEY:-}"
 
 # Check if admin key is set
@@ -114,7 +114,7 @@ case "$1" in
         echo "  reactivate <client-id>    - Reactivate client access"
         echo ""
         echo "Environment Variables:"
-        echo "  VIGINT_SERVER_URL         - Server URL (default: https://vigint-api-server.onrender.com)"
+        echo "  VIGINT_SERVER_URL         - Server URL (default: https://vigint.onrender.com)"
         echo "  VIGINT_ADMIN_KEY          - Admin key (required, same as SECRET_KEY)"
         echo ""
         echo "Examples:"

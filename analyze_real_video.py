@@ -91,9 +91,6 @@ class RealVideoAnalyzer(VideoAnalyzer):
                 
                 # Prepare incident data with real analysis info
                 incident_data = {
-                    'risk_level': 'HIGH' if analysis_result.get('incident_detected', False) else 'MEDIUM',
-                    'frame_count': len(real_frames),
-                    'confidence': analysis_result.get('confidence', 0.0),
                     'analysis': analysis_result.get('analysis', ''),
                     'incident_type': analysis_result.get('incident_type', ''),
                     'source': 'real_input_video_analysis',

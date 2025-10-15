@@ -1,0 +1,15 @@
+{
+  "video_id": "5293df5c-1ea9-4fff-a59d-2ad2f4f6e457",
+  "upload_timestamp": "2025-09-25T15:27:59.195106",
+  "expiration_time": "2025-09-25T16:27:59.194660",
+  "source": "vigint-security-system",
+  "type": "security_incident",
+  "file_hash": "1682d56ead6764252be1f1365d58f7917137f4785be0cf551cc6ec8e0863c266",
+  "original_path": "/var/folders/7m/j0l91y0x66vc622xn6h1m7g80000gv/T/test_hybrid_1l72o3cy.mp4",
+  "local_path": "local_videos/incident_MEDIUM_20250925_152759_5293df5c.mp4",
+  "incident_type": "test_hybrid",
+  "risk_level": "MEDIUM",
+  "confidence": 0.8,
+  "frame_count": 50,
+  "analysis": "Testing hybrid video service functionality"
+}

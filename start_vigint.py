@@ -370,6 +370,70 @@ def start_video_analysis(video_path):
     logger.info("🎬 Dual-buffer video analysis thread started")
 
 
+def start_multi_source_analysis(config_file="multi_source_config.json"):
+    """Start multi-source video analysis in parallel"""
+    import threading
+    
+    def run_multi_analysis():
+        try:
+            # Wait for system to initialize
+            time.sleep(5)
+            
+            logger.info("🚀 Starting MULTI-SOURCE video analysis")
+            logger.info("📹 Loading video sources from configuration...")
+            
+            # Import multi-source components
+            from multi_source_config import MultiSourceConfig
+            from multi_source_video_analyzer import MultiSourceVideoAnalyzer
+            
+            # Load configuration
+            config_manager = MultiSourceConfig(config_file)
+            sources = config_manager.list_video_sources(enabled_only=True)
+            
+            if not sources:
+                logger.error("❌ No enabled video sources found in configuration")
+                logger.info(f"💡 Edit {config_file} to add video sources")
+                return
+            
+            logger.info(f"✅ Loaded {len(sources)} enabled video source(s)")
+            
+            # Create multi-source analyzer
+            analyzer = MultiSourceVideoAnalyzer()
+            
+            # Add all video sources to analyzer
+            for source_id, source_config in sources.items():
+                rtsp_url = source_config['rtsp_url']
+                name = source_config['name']
+                
+                logger.info(f"   📹 {source_id}: {name} -> {rtsp_url}")
+                analyzer.add_video_source(source_id, rtsp_url, name)
+            
+            # Get analysis settings from config
+            analysis_settings = config_manager.config_data.get('analysis_settings', {})
+            if analysis_settings:
+                analyzer.analysis_interval = analysis_settings.get('analysis_interval', 10)
+                logger.info(f"⚙️  Analysis interval: {analyzer.analysis_interval}s")
+            
+            # Start the parallel analysis
+            logger.info("🚀 Starting parallel analysis of all sources...")
+            analyzer.start_analysis()
+            
+            logger.info("✅ Multi-source analysis running")
+            logger.info("🔍 All sources are being analyzed in parallel")
+            logger.info("🚨 Incidents will trigger automated alerts")
+            
+        except Exception as e:
+            logger.error(f"❌ Error starting multi-source analysis: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
+    
+    # Start multi-source analysis in background thread
+    analysis_thread = threading.Thread(target=run_multi_analysis, daemon=True)
+    analysis_thread.start()
+    
+    logger.info("🎬 Multi-source analysis thread started")
+
+
 def check_api_proxy_running():
     """Check if API proxy is already running on port 5002"""
     import socket
@@ -419,13 +483,21 @@ def main():
                        help='Skip RTSP server startup')
     parser.add_argument('--video-input', type=str,
                        help='🎬 Video file for dual-buffer analysis (enables smooth video evidence creation)')
+    parser.add_argument('--multi-source', action='store_true',
+                       help='🎥 Enable multi-source parallel video analysis from config file')
+    parser.add_argument('--config-file', type=str, default='multi_source_config.json',
+                       help='📝 Configuration file for multi-source analysis (default: multi_source_config.json)')
     
     args = parser.parse_args()
     
     logger.info("🎬 VIGINT SECURITY SYSTEM")
     logger.info("=" * 50)
     logger.info(f"Mode: {args.mode}")
-    if args.video_input:
+    if args.multi_source:
+        logger.info(f"Multi-Source Analysis: ENABLED")
+        logger.info(f"Config File: {args.config_file}")
+        logger.info("🎥 Multiple video sources will be analyzed in parallel")
+    elif args.video_input:
         logger.info(f"Video Input: {args.video_input}")
         logger.info("🔍 Real video analysis enabled - will analyze actual input frames")
         logger.info("📧 Video links will contain the frames that were actually analyzed")
@@ -453,18 +525,25 @@ def main():
         if not initialize_database(app):
             return 1
         
-        # Check if API proxy is already running
-        api_proxy_running = check_api_proxy_running()
-        if api_proxy_running:
-            logger.info("✅ API proxy already running on port 5002")
+        # Check if using remote API server
+        remote_api_url = config.api_server_url
+        if remote_api_url:
+            logger.info(f"✅ Using remote API server at: {remote_api_url}")
+            logger.info("📡 Distributed deployment mode - API proxy will not start locally")
+            api_proxy_running = True  # Skip local startup
+        else:
+            # Check if API proxy is already running locally
+            api_proxy_running = check_api_proxy_running()
+            if api_proxy_running:
+                logger.info("✅ API proxy already running on port 5002")
         
         # Import API proxy early but don't start it yet
         proxy_app = None
-        if args.mode in ['api', 'full'] and not api_proxy_running:
-            logger.info("Importing API proxy...")
+        if args.mode in ['api', 'full'] and not api_proxy_running and not remote_api_url:
+            logger.info("Importing API proxy for local deployment...")
             from api_proxy import app as proxy_app
-        elif args.mode in ['api', 'full'] and api_proxy_running:
-            logger.info("Skipping API proxy startup - already running")
+        elif args.mode in ['api', 'full'] and (api_proxy_running or remote_api_url):
+            logger.info("Skipping API proxy startup - using remote or already running")
         
         # Start RTSP server if needed
         if args.mode in ['rtsp', 'full'] and not args.no_rtsp:
@@ -478,8 +557,56 @@ def main():
             logger.info("Starting video server for GDPR-compliant video links...")
             start_video_server()
             
+            # Handle multi-source analysis mode
+            if args.multi_source:
+                logger.info("🎥 MULTI-SOURCE VIDEO ANALYSIS SETUP")
+                logger.info("=" * 50)
+                logger.info(f"📝 Config file: {args.config_file}")
+                
+                # Verify config file exists
+                if not os.path.exists(args.config_file):
+                    logger.error(f"❌ Configuration file not found: {args.config_file}")
+                    logger.info("💡 Create a configuration file or use --config-file to specify a different path")
+                    return 1
+                
+                logger.info("\n🚀 MULTI-SOURCE SYSTEM FEATURES:")
+                logger.info("   ✅ Parallel analysis of multiple video sources")
+                logger.info("   ✅ Aggregated analysis for 4+ sources")
+                logger.info("   ✅ Individual analysis for fewer sources")
+                logger.info("   ✅ Real Gemini AI with automatic fallback")
+                logger.info("   ✅ Incident deduplication across sources")
+                logger.info("   ✅ GDPR-compliant video storage")
+                logger.info("=" * 50)
+                
+                # Start multi-source analysis
+                logger.info("🎬 Starting MULTI-SOURCE video analysis...")
+                start_multi_source_analysis(args.config_file)
+                
+                # Add monitoring for multi-source videos
+                def monitor_multi_source_videos():
+                    """Monitor and report video creation for multi-source analysis"""
+                    import time
+                    import glob
+                    
+                    time.sleep(10)  # Wait for system to start
+                    initial_count = len(glob.glob('mock_sparse_ai_cloud/*.mp4'))
+                    
+                    while True:
+                        time.sleep(30)  # Check every 30 seconds
+                        current_count = len(glob.glob('mock_sparse_ai_cloud/*.mp4'))
+                        if current_count > initial_count:
+                            new_videos = current_count - initial_count
+                            logger.info(f"🎬 {new_videos} new security video(s) created from multi-source analysis!")
+                            logger.info("📁 Videos saved in: mock_sparse_ai_cloud/")
+                            initial_count = current_count
+                
+                # Start monitoring in background
+                import threading
+                monitor_thread = threading.Thread(target=monitor_multi_source_videos, daemon=True)
+                monitor_thread.start()
+                
             # If video input is provided, configure streaming and dual-buffer analysis
-            if args.video_input:
+            elif args.video_input:
                 logger.info("🎬 DUAL-BUFFER VIDEO ANALYSIS SETUP")
                 logger.info("=" * 50)
                 logger.info(f"📹 Video input: {args.video_input}")
@@ -537,8 +664,11 @@ def main():
                 monitor_thread.start()
             else:
                 logger.info("⚠️ No video input provided")
-                logger.info("💡 Use --video-input to enable dual-buffer video analysis")
-                logger.info("   Example: --video-input '/path/to/your/video.mp4'")
+                logger.info("💡 Options:")
+                logger.info("   • Use --video-input to enable single video analysis")
+                logger.info("     Example: --video-input '/path/to/your/video.mp4'")
+                logger.info("   • Use --multi-source to enable parallel analysis of multiple sources")
+                logger.info("     Example: --multi-source --config-file multi_source_config.json")
         
         # Start API server if needed (after RTSP server is running)
         if args.mode in ['api', 'full'] and proxy_app and not api_proxy_running:

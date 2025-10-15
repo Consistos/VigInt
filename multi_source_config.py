@@ -33,7 +33,7 @@ class MultiSourceConfig:
                     "created_at": datetime.now().isoformat(),
                     "analysis_settings": {
                         "analysis_interval": 10,
-                        "aggregation_threshold": 4,
+                        "aggregation_threshold": 9999,
                         "max_concurrent_analyses": 4,
                         "frame_buffer_duration": 10
                     },
@@ -206,22 +206,17 @@ class MultiSourceConfig:
         return True
     
     def get_sources_for_analysis(self):
-        """Get sources configured for analysis with grouping logic"""
+        """Get sources configured for analysis (aggregation disabled)"""
         enabled_sources = self.list_video_sources(enabled_only=True)
         analysis_sources = {k: v for k, v in enabled_sources.items() 
                           if v.get("analysis_enabled", True)}
         
-        # Apply grouping logic based on aggregation threshold
-        threshold = self.config_data.get("analysis_settings", {}).get("aggregation_threshold", 4)
-        
-        if len(analysis_sources) >= threshold:
-            return self._organize_sources_for_aggregation(analysis_sources, threshold)
-        else:
-            return {
-                "individual_sources": list(analysis_sources.keys()),
-                "aggregated_groups": [],
-                "total_sources": len(analysis_sources)
-            }
+        # Aggregation disabled - all sources analyzed individually
+        return {
+            "individual_sources": list(analysis_sources.keys()),
+            "aggregated_groups": [],
+            "total_sources": len(analysis_sources)
+        }
     
     def _organize_sources_for_aggregation(self, sources, threshold):
         """Organize sources into aggregated groups and individual sources"""

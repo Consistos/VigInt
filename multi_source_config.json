@@ -3,82 +3,68 @@
   "created_at": "2025-09-23T14:50:59.903006",
   "analysis_settings": {
     "analysis_interval": 10,
-    "aggregation_threshold": 4,
+    "aggregation_threshold": 9999,
     "max_concurrent_analyses": 4,
     "frame_buffer_duration": 10
   },
   "video_sources": {
-    "quick_source_1": {
-      "source_id": "quick_source_1",
-      "rtsp_url": "buffer_video_1.mp4",
-      "name": "Camera_1",
+    "vol_8": {
+      "source_id": "vol_8",
+      "rtsp_url": "/Users/david2/Downloads/Vol 8.mp4",
+      "name": "Vol 8",
       "enabled": true,
-      "location": "",
-      "description": "Quick start source",
-      "priority": "normal",
+      "location": "Downloads",
+      "description": "Theft video 8",
+      "priority": "high",
       "analysis_enabled": true,
       "alert_enabled": true,
       "recording_enabled": false,
-      "created_at": "2025-09-24T11:02:48.279115",
-      "tags": []
+      "created_at": "2025-10-03T18:31:22+02:00",
+      "tags": ["theft", "surveillance"]
     },
-    "quick_source_2": {
-      "source_id": "quick_source_2",
-      "rtsp_url": "buffer_video_2.mp4",
-      "name": "Camera_2",
+    "vol_7_lunettes": {
+      "source_id": "vol_7_lunettes",
+      "rtsp_url": "/Users/david2/Downloads/Vol 7 (lunettes).mp4",
+      "name": "Vol 7 (lunettes)",
       "enabled": true,
-      "location": "",
-      "description": "Quick start source",
-      "priority": "normal",
+      "location": "Downloads",
+      "description": "Theft video 7 - glasses",
+      "priority": "high",
       "analysis_enabled": true,
       "alert_enabled": true,
       "recording_enabled": false,
-      "created_at": "2025-09-24T11:02:48.279771",
-      "tags": []
+      "created_at": "2025-10-03T18:31:22+02:00",
+      "tags": ["theft", "surveillance", "glasses"]
     },
-    "quick_source_3": {
-      "source_id": "quick_source_3",
-      "rtsp_url": "buffer_video_3.mp4",
-      "name": "Camera_3",
+    "vol_6": {
+      "source_id": "vol_6",
+      "rtsp_url": "/Users/david2/Downloads/Vol 6.mp4",
+      "name": "Vol 6",
       "enabled": true,
-      "location": "",
-      "description": "Quick start source",
-      "priority": "normal",
+      "location": "Downloads",
+      "description": "Theft video 6",
+      "priority": "high",
       "analysis_enabled": true,
       "alert_enabled": true,
       "recording_enabled": false,
-      "created_at": "2025-09-24T11:02:48.279926",
-      "tags": []
+      "created_at": "2025-10-03T18:31:22+02:00",
+      "tags": ["theft", "surveillance"]
     },
-    "quick_source_4": {
-      "source_id": "quick_source_4",
-      "rtsp_url": "buffer_video_4.mp4",
-      "name": "Camera_4",
+    "vol_3": {
+      "source_id": "vol_3",
+      "rtsp_url": "/Users/david2/Downloads/Vol 3.mp4",
+      "name": "Vol 3",
       "enabled": true,
-      "location": "",
-      "description": "Quick start source",
-      "priority": "normal",
+      "location": "Downloads",
+      "description": "Theft video 3",
+      "priority": "high",
       "analysis_enabled": true,
       "alert_enabled": true,
       "recording_enabled": false,
-      "created_at": "2025-09-24T11:02:48.280072",
-      "tags": []
-    },
-    "quick_source_5": {
-      "source_id": "quick_source_5",
-      "rtsp_url": "buffer_video_5.mp4",
-      "name": "Office",
-      "enabled": true,
-      "location": "",
-      "description": "Quick start source",
-      "priority": "normal",
-      "analysis_enabled": true,
-      "alert_enabled": true,
-      "recording_enabled": false,
-      "created_at": "2025-09-23T14:50:59.903714",
-      "tags": []
+      "created_at": "2025-10-04T10:32:00+02:00",
+      "tags": ["theft", "surveillance"]
     }
   },
   "source_groups": {},
-  "last_updated": "2025-09-24T11:02:48.280074"
+  "last_updated": "2025-10-04T10:32:00+02:00"
 }

@@ -14,7 +14,14 @@ import requests
 import base64
 from pathlib import Path
 from datetime import datetime
-from config import config
+
+# Try to import config, but use defaults if not available (client mode)
+try:
+    from config import config
+    CONFIG_AVAILABLE = True
+except (ImportError, FileNotFoundError):
+    config = None
+    CONFIG_AVAILABLE = False
 
 # Configure logging
 logging.basicConfig(
@@ -62,38 +69,48 @@ class SecureVideoAnalyzer:
             self._test_connection()
     
     def _load_buffer_config(self):
-        """Load and validate buffer configuration from config.ini"""
-        try:
-            # Validate configuration first
-            config.validate_buffer_config()
-            
-            # Load buffer settings
-            buffer_config = config.get_buffer_config()
-            self.short_buffer_duration = buffer_config['short_buffer_duration']
-            self.long_buffer_duration = buffer_config['long_buffer_duration']
-            self.analysis_fps = buffer_config['analysis_fps']
-            self.video_format = buffer_config['video_format']
-            
-            # Set analysis interval to short buffer duration for more frequent monitoring
-            self.analysis_interval = self.short_buffer_duration
-            
-            logger.info(f"Buffer configuration loaded:")
-            logger.info(f"  Short buffer: {self.short_buffer_duration}s")
-            logger.info(f"  Long buffer: {self.long_buffer_duration}s")
-            logger.info(f"  Analysis interval: {self.analysis_interval}s")
-            logger.info(f"  Analysis FPS: {self.analysis_fps}")
-            logger.info(f"  Video format: {self.video_format}")
-            
-        except Exception as e:
-            logger.error(f"Failed to load buffer configuration: {e}")
-            logger.info("Using default buffer settings")
-            
-            # Set default values
-            self.short_buffer_duration = 3
-            self.long_buffer_duration = 10
-            self.analysis_fps = 25
-            self.video_format = 'mp4'
-            self.analysis_interval = self.short_buffer_duration
+        """Load and validate buffer configuration from config.ini or use defaults"""
+        # Try to load from config.ini if available (server mode)
+        if CONFIG_AVAILABLE and config is not None:
+            try:
+                # Validate configuration first
+                config.validate_buffer_config()
+                
+                # Load buffer settings
+                buffer_config = config.get_buffer_config()
+                self.short_buffer_duration = buffer_config['short_buffer_duration']
+                self.long_buffer_duration = buffer_config['long_buffer_duration']
+                self.analysis_fps = buffer_config['analysis_fps']
+                self.video_format = buffer_config['video_format']
+                
+                # Set analysis interval to short buffer duration for more frequent monitoring
+                self.analysis_interval = self.short_buffer_duration
+                
+                logger.info(f"Buffer configuration loaded from config.ini:")
+                logger.info(f"  Short buffer: {self.short_buffer_duration}s")
+                logger.info(f"  Long buffer: {self.long_buffer_duration}s")
+                logger.info(f"  Analysis interval: {self.analysis_interval}s")
+                logger.info(f"  Analysis FPS: {self.analysis_fps}")
+                logger.info(f"  Video format: {self.video_format}")
+                return
+                
+            except Exception as e:
+                logger.warning(f"Failed to load buffer configuration: {e}")
+                logger.info("Using default buffer settings")
+        else:
+            logger.info("No config.ini found - using default buffer settings (client mode)")
+        
+        # Set default values (client mode or fallback)
+        self.short_buffer_duration = 3
+        self.long_buffer_duration = 10
+        self.analysis_fps = 25
+        self.video_format = 'mp4'
+        self.analysis_interval = self.short_buffer_duration
+        
+        logger.info(f"Default buffer configuration:")
+        logger.info(f"  Short buffer: {self.short_buffer_duration}s")
+        logger.info(f"  Long buffer: {self.long_buffer_duration}s")
+        logger.info(f"  Analysis FPS: {self.analysis_fps}")
     
     def _test_connection(self):
         """Test connection to API proxy"""
@@ -255,7 +272,7 @@ class SecureVideoAnalyzer:
                 7. Signs of nervousness or anxiety while handling merchandise
                 
                 Return ONLY a JSON object without markdown formatting:
-                {"incident_detected": boolean, "incident_type": string, "confidence": float, "description": string, "analysis": string}
+                {"incident_detected": boolean, "incident_type": string, "description": string, "analysis": string}
                 
                 Answer in French.
                 """
@@ -281,23 +298,16 @@ class SecureVideoAnalyzer:
                     analysis_json = json.loads(response_text)
                     
                     has_security_incident = analysis_json.get('incident_detected', False)
-                    confidence = analysis_json.get('confidence', 0.0)
                     analysis_text = analysis_json.get('analysis', response.text)
                     incident_type = analysis_json.get('incident_type', '')
                     
-                    # Map confidence to risk level
-                    if confidence >= 0.8:
-                        risk_level = "HIGH"
-                    elif confidence >= 0.5:
-                        risk_level = "MEDIUM"
-                    else:
-                        risk_level = "LOW"
+                    # Set risk level to HIGH for all detected incidents
+                    risk_level = "HIGH" if has_security_incident else "LOW"
                     
                     result = {
                         'analysis': analysis_text,
                         'has_security_incident': has_security_incident,
                         'risk_level': risk_level,
-                        'confidence': confidence,
                         'frame_count': latest_frame['frame_count'],
                         'timestamp': datetime.now().isoformat(),
                         'source': 'local_analysis',
@@ -306,7 +316,7 @@ class SecureVideoAnalyzer:
                     
                     if has_security_incident:
                         logger.warning("🚨 SECURITY INCIDENT DETECTED in local analysis!")
-                        logger.warning(f"Risk Level: {risk_level}, Confidence: {confidence:.2f}")
+                        logger.warning(f"Risk Level: {risk_level}")
                     
                     return result
                     
@@ -331,8 +341,7 @@ class SecureVideoAnalyzer:
                     return {
                         'analysis': response.text,
                         'has_security_incident': has_incident,
-                        'risk_level': 'MEDIUM',
-                        'confidence': 0.7,
+                        'risk_level': 'HIGH' if has_incident else 'LOW',
                         'frame_count': latest_frame['frame_count'],
                         'timestamp': datetime.now().isoformat(),
                         'source': 'local_analysis_fallback',
@@ -365,7 +374,6 @@ Analyse du frame {frame_info['frame_count']} à {frame_info['timestamp']}
 
 DÉTAILS DE L'INCIDENT:
 - Type: Activité suspecte détectée
-- Niveau de confiance: 85%
 - Localisation: Zone de surveillance principale
 
 DESCRIPTION:
@@ -379,8 +387,7 @@ ACTIONS RECOMMANDÉES:
 
 Note: Cette analyse a été effectuée localement en raison de l'indisponibilité de l'API proxy.''',
                 'has_security_incident': True,
-                'risk_level': 'MEDIUM',
-                'confidence': 0.85,
+                'risk_level': 'HIGH',
                 'frame_count': frame_info['frame_count'],
                 'timestamp': datetime.now().isoformat(),
                 'source': 'mock_analysis'
@@ -390,7 +397,6 @@ Note: Cette analyse a été effectuée localement en raison de l'indisponibilit�
                 'analysis': 'Aucun incident de sécurité détecté dans cette analyse.',
                 'has_security_incident': False,
                 'risk_level': 'LOW',
-                'confidence': 0.1,
                 'frame_count': frame_info['frame_count'],
                 'timestamp': datetime.now().isoformat(),
                 'source': 'mock_analysis'
@@ -442,20 +448,17 @@ Note: Cette analyse a été effectuée localement en raison de l'indisponibilit�
             incident_data = {
                 'risk_level': analysis_result.get('risk_level', 'HIGH'),
                 'frame_count': analysis_result.get('frame_count', 0),
-                'confidence': analysis_result.get('confidence', 0.8),
                 'analysis': analysis_result.get('analysis', ''),
                 'incident_type': analysis_result.get('incident_type', '')
             }
             
             # Create alert message in French
+            timestamp = datetime.now().strftime('%H:%M:%S - %d/%m/%Y')
             message = f"""
-INCIDENT DE SÉCURITÉ DÉTECTÉ
+🚨 ALERTE SÉCURITÉ VIGINT
 
-Heure: {datetime.now().isoformat()}
-Image: {analysis_result.get('frame_count', 0)}
-Niveau de risque: {incident_data['risk_level']}
+Heure: {timestamp}
 Type d'incident: {incident_data.get('incident_type', 'Non spécifié')}
-
 Cet alerte a été envoyée via le système d'alerte vidéo local.
 Veuillez examiner immédiatement les preuves vidéo ci-jointes.
 """
@@ -583,7 +586,6 @@ Veuillez examiner immédiatement les preuves vidéo ci-jointes.
                     logger.warning("🚨 SECURITY INCIDENT DETECTED in buffer analysis!")
                     logger.warning(f"Source: {analysis_source}")
                     logger.warning(f"Risk Level: {result.get('risk_level', 'UNKNOWN')}")
-                    logger.warning(f"Confidence: {result.get('confidence', 0):.2f}")
                     logger.warning(f"Analysis: {result.get('analysis', '')[:200]}...")
                     
                     # Send alert (will use local video alert system)

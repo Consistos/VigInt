@@ -99,28 +99,12 @@ class AlertManager:
             msg['Subject'] = subject
             
             # Enhanced body with incident details in French
-            body = f"""
-🚨 ALERTE SYSTÈME VIGINT
-
-Type d'alerte: {alert_type.upper()}
-Horodatage: {datetime.now().isoformat()}
-
-Message:
-{message}
-"""
+            body = message
             
-            # Add incident-specific information if available
-            if incident_data:
+            # Only add analysis if it's not already in the message
+            if incident_data and 'analysis' in incident_data and incident_data['analysis'] not in message:
                 body += f"""
 
-DÉTAILS DE L'INCIDENT:
-Niveau de risque: {incident_data.get('risk_level', 'INCONNU')}
-Numéro d'image: {incident_data.get('frame_count', 'N/A')}
-Confiance: {incident_data.get('confidence', 'N/A')}
-"""
-                # Only add analysis if it's not already in the message
-                if 'analysis' in incident_data and incident_data['analysis'] not in message:
-                    body += f"""
 Analyse IA:
 {incident_data['analysis']}
 """
@@ -133,26 +117,21 @@ Analyse IA:
                 video_link_info = incident_data['video_link_info']
                 upload_result = video_link_info
                 
+                # Format expiration time naturally
+                try:
+                    from datetime import datetime
+                    expiration_dt = datetime.fromisoformat(upload_result['expiration_time'])
+                    formatted_expiration = expiration_dt.strftime('%H:%M:%S - %d/%m/%Y')
+                except:
+                    formatted_expiration = upload_result['expiration_time']
+                
                 body += f"""
 
 🔗 LIEN VIDÉO PRIVÉ SÉCURISÉ:
 {upload_result['private_link']}
-
-💾 Taille: {upload_result.get('video_size_mb', 'N/A')} MB
-🆔 ID Vidéo: {upload_result['video_id']}
-⏰ Expiration: {upload_result['expiration_time']}
-
-🔒 ACCÈS SÉCURISÉ:
+⏰ Expiration: {formatted_expiration}
 Cliquez sur le lien ci-dessus pour visualiser la vidéo de l'incident.
-Le lien est sécurisé avec un token d'accès et expirera automatiquement.
-
-🚀 INNOVATION TECHNIQUE MAJEURE:
-Cette vidéo utilise le nouveau système "dual-buffer" qui capture 
-TOUTES les images en continu AVANT l'analyse IA. Résultat: 
-vidéo fluide de qualité professionnelle au lieu des anciennes 
-vidéos saccadées avec des gaps de 5 secondes!
-
-🏆 AMÉLIORATION: 125x plus d'images pour une vidéo fluide!
+Le lien est sécurisé avec un token d'accès et expirera automatiquement après 7 jours.
 """
                 
                 # Add local file info if available (for debugging)
@@ -171,7 +150,7 @@ vidéos saccadées avec des gaps de 5 secondes!
                     video_service = create_gdpr_video_service()
                     
                     # Upload video and get private link (GDPR compliant)
-                    upload_result = video_service.upload_video(video_path, incident_data, expiration_hours=48)
+                    upload_result = video_service.upload_video(video_path, incident_data, expiration_hours=168)
                     
                     if upload_result['success']:
                         video_link_info = upload_result
@@ -181,12 +160,20 @@ vidéos saccadées avec des gaps de 5 secondes!
                         if video_size == 'N/A' and os.path.exists(video_path):
                             video_size = os.path.getsize(video_path) / (1024 * 1024)  # Size in MB
                         
+                        # Format expiration time naturally
+                        try:
+                            from datetime import datetime
+                            expiration_dt = datetime.fromisoformat(upload_result['expiration_time'])
+                            formatted_expiration = expiration_dt.strftime('%H:%M:%S - %d/%m/%Y')
+                        except:
+                            formatted_expiration = upload_result['expiration_time']
+                        
                         body += f"""
 
 📹 PREUVES VIDÉO DISPONIBLES (CONFORME RGPD)
 Lien privé sécurisé: {upload_result['private_link']}
 Taille du fichier: {video_size:.1f} MB
-Expiration: {upload_result['expiration_time']}
+Expiration: {formatted_expiration}
 ID Vidéo: {upload_result['video_id']}
 Niveau de confidentialité: {upload_result.get('privacy_level', 'Élevé')}
 
@@ -746,7 +733,7 @@ def send_security_alert_with_video(message, frames=None, incident_data=None):
             logger.info(f"Creating video with {target_fps:.2f} FPS (analysis interval: {analysis_interval}s)")
             
             # Create and upload video directly (GDPR compliant) with correct FPS
-            upload_result = create_and_upload_video_from_frames_gdpr(frames, incident_data, expiration_hours=48, target_fps=target_fps)
+            upload_result = create_and_upload_video_from_frames_gdpr(frames, incident_data, expiration_hours=168, target_fps=target_fps)
             
             if upload_result['success']:
                 # Calculate video size for display

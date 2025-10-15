@@ -1,40 +1,63 @@
 # Multi-Source Video Analysis System
 
-The Multi-Source Video Analysis System allows simultaneous analysis of multiple video sources with intelligent aggregation for groups of 4 or more cameras.
+The Multi-Source Video Analysis System allows simultaneous analysis of multiple video sources using the **dual-buffer system** with Gemini 2.5 Flash-Lite and Flash models through the API proxy.
 
 ## Features
 
 ### 🎯 Core Functionality
-- **Simultaneous Analysis**: Process multiple video sources concurrently
-- **Intelligent Aggregation**: Automatically group 4+ sources for combined analysis
-- **Individual Processing**: Sources not in groups of 4 are analyzed individually
-- **Real-time Monitoring**: Continuous monitoring with configurable intervals
+- **Simultaneous Analysis**: Process multiple video sources concurrently via API
+- **Dual-Buffer System**: Flash-Lite (3s) for detection → Flash (10s) for confirmation
+- **Veto Power**: Flash has final decision on whether to send email alerts
+- **API-Based Architecture**: Uses `api_proxy.py` for consistent analysis logic
+- **Real-time Monitoring**: Continuous frame buffering with periodic analysis
 - **Security Incident Detection**: AI-powered detection with French language alerts
 
-### 📊 Aggregation Logic
-- **4+ Sources**: Groups of exactly 4 sources are aggregated into composite frames
-- **Remainder Sources**: Sources that don't form complete groups of 4 remain individual
-- **Example**: 
-  - 6 sources → 1 group of 4 + 2 individual sources
-  - 9 sources → 2 groups of 4 + 1 individual source
-  - 3 sources → 3 individual sources
+### ⚡ Dual-Buffer Flow
+1. **Continuous Buffering**: Frames sent to API buffer in real-time
+2. **Flash-Lite Screening** (every 3s): Quick incident detection on short buffer
+3. **Flash Confirmation** (on detection): Detailed analysis on long buffer (10s)
+4. **Veto System**: Email sent ONLY if Flash confirms the incident
 
-### 🔧 Configuration Management
-- **JSON-based Configuration**: Persistent storage of source configurations
-- **Dynamic Source Management**: Add/remove sources without restart
-- **Priority Levels**: Set source priorities (low, normal, high)
-- **Location Tracking**: Organize sources by physical location
-- **Analysis Settings**: Configurable intervals and thresholds
+### 🔧 Configuration Requirements
+- **API Server**: `api_proxy.py` must be running
+- **API Key**: Vigint API key for authentication
+- **Environment Variables**: 
+  - `VIGINT_API_KEY`: Your API key
+  - `GOOGLE_API_KEY`: Gemini API key (used by api_proxy.py)
 
 ## Quick Start
+
+### Prerequisites
+
+1. **Start the API proxy** (in a separate terminal):
+```bash
+python api_proxy.py
+```
+
+2. **Set your API key**:
+```bash
+export VIGINT_API_KEY=your_api_key_here
+```
 
 ### 1. Basic Usage with Video Files
 
 ```bash
-# Quick start with existing video files
-python run_multi_source_analysis.py quick-start \
-  --sources buffer_video_1.mp4 buffer_video_2.mp4 buffer_video_3.mp4 buffer_video_4.mp4 \
-  --names "Front Door" "Sales Floor" "Checkout" "Storage"
+# Analyze multiple video sources with dual-buffer system
+python multi_source_video_analyzer.py \
+  --sources buffer_video_1.mp4 buffer_video_2.mp4 buffer_video_3.mp4 \
+  --names "Front Door" "Sales Floor" "Checkout" \
+  --interval 3
+```
+
+### 2. With RTSP Streams
+
+```bash
+# Analyze RTSP camera streams
+python multi_source_video_analyzer.py \
+  --sources rtsp://camera1/stream rtsp://camera2/stream \
+  --names "Camera 1" "Camera 2" \
+  --api-url http://localhost:5000 \
+  --api-key your_api_key
 ```
 
 ### 2. Interactive Management
@@ -122,19 +145,27 @@ composite_grid_size = 2x2
 
 ```python
 from multi_source_video_analyzer import MultiSourceVideoAnalyzer
-from multi_source_config import MultiSourceConfig
 
-# Create analyzer
-analyzer = MultiSourceVideoAnalyzer()
+# Create analyzer with API configuration
+analyzer = MultiSourceVideoAnalyzer(
+    api_key='your_vigint_api_key',
+    api_url='http://localhost:5000'
+)
 
 # Add video sources
 analyzer.add_video_source("cam1", "rtsp://192.168.1.100:554/stream1", "Front Door")
 analyzer.add_video_source("cam2", "rtsp://192.168.1.101:554/stream1", "Sales Floor")
 analyzer.add_video_source("cam3", "rtsp://192.168.1.102:554/stream1", "Checkout")
-analyzer.add_video_source("cam4", "rtsp://192.168.1.103:554/stream1", "Storage")
 
-# Start analysis
+# Configure analysis interval (Flash-Lite screening frequency)
+analyzer.analysis_interval = 3  # seconds
+
+# Start analysis (begins dual-buffer system)
 analyzer.start_analysis()
+# This starts:
+# - Continuous frame buffering to API
+# - Flash-Lite screening every 3 seconds
+# - Flash confirmation on detections
 
 # Monitor status
 status = analyzer.get_status()
@@ -143,6 +174,36 @@ print(f"Active sources: {status['active_sources']}/{status['total_sources']}")
 # Stop analysis
 analyzer.stop_analysis()
 ```
+
+### Direct API Endpoints
+
+The system exposes these endpoints in `api_proxy.py`:
+
+#### Buffer Frames
+```bash
+POST /api/video/multi-source/buffer
+{
+  "source_id": "cam1",
+  "source_name": "Front Door",
+  "frame_data": "base64_encoded_frame",
+  "frame_count": 123
+}
+```
+
+#### Analyze Multiple Sources
+```bash
+POST /api/video/multi-source/analyze
+{
+  "source_ids": ["cam1", "cam2", "cam3"]
+}
+```
+
+Response includes:
+- Per-source analysis results
+- Flash-Lite detections
+- Flash confirmations
+- Veto information
+- Summary statistics
 
 ### Configuration Management
 
@@ -172,26 +233,33 @@ print(f"Individual sources: {len(analysis_config['individual_sources'])}")
 ### 1. Source Management
 - Each video source runs in its own thread
 - Continuous frame capture at ~25 FPS
-- Frame buffering for video evidence creation
+- Frames sent to API buffer in real-time
 - Health monitoring and reconnection
 
-### 2. Aggregation Logic
-- Sources are grouped automatically based on threshold (default: 4)
-- Groups of exactly 4 sources create composite frames
-- Composite frames show 2x2 grid with camera labels
-- Remainder sources are analyzed individually
+### 2. Dual-Buffer Analysis (API-Based)
+**Stage 1 - Flash-Lite Screening (Every 3 seconds):**
+- Analyzes most recent frame from short buffer (3 seconds)
+- Uses Gemini 2.5 Flash-Lite (fast, cost-effective)
+- Quick incident detection
+- If incident detected → Triggers Stage 2
 
-### 3. AI Analysis
-- Uses Google Gemini AI for incident detection
-- Specialized prompts for retail security scenarios
-- French language responses for alerts
-- Confidence scoring and incident classification
+**Stage 2 - Flash Confirmation (On Detection):**
+- Analyzes 3 key frames from long buffer (10 seconds)
+- Uses Gemini 2.5 Flash (more powerful, accurate)
+- Makes FINAL DECISION: Confirm or Veto
+- Email sent ONLY if Flash confirms
+
+### 3. Veto System
+- **Flash-Lite detects → Flash confirms**: Email sent ✅
+- **Flash-Lite detects → Flash vetoes**: NO email ❌
+- Reduces false positives
+- Flash has final authority
 
 ### 4. Alert System
-- Automatic email alerts with video evidence
-- Multi-camera incident correlation
-- Video compilation from multiple sources
+- Automatic email alerts ONLY on Flash confirmation
+- Video evidence from long buffer (10 seconds)
 - Detailed incident reports in French
+- Includes Flash-Lite and Flash analysis results
 
 ## Security Features
 
@@ -202,10 +270,10 @@ print(f"Individual sources: {len(analysis_config['individual_sources'])}")
 - **Multi-Camera Correlation**: Tracking individuals across camera zones
 
 ### Alert Types
-- **Individual Camera Alerts**: Single source incident detection
-- **Aggregated Group Alerts**: Multi-camera coordinated incidents
-- **High Priority Alerts**: Immediate notification for critical events
-- **Video Evidence**: Automatic compilation of relevant footage
+- **Confirmed Incidents Only**: Alerts sent only after Flash confirmation
+- **Per-Source Alerts**: Individual camera incident detection
+- **Video Evidence**: 10-second clips from long buffer
+- **Dual-Model Validation**: Flash-Lite + Flash analysis included
 
 ## Performance Considerations
 
@@ -216,10 +284,10 @@ print(f"Individual sources: {len(analysis_config['individual_sources'])}")
 - **Storage**: Temporary video files for evidence
 
 ### Optimization Tips
-- Adjust `analysis_interval` based on security requirements
-- Use `aggregation_threshold` to balance detail vs. overview
-- Set `max_concurrent_analyses` based on system capabilities
-- Configure `frame_buffer_duration` for evidence needs
+- **Analysis Interval**: Keep at 3 seconds (matches short buffer cycle)
+- **API Performance**: Ensure api_proxy.py has sufficient resources
+- **Network**: Stable connection between analyzer and API required
+- **Buffer Duration**: 10 seconds provides good context for confirmation
 
 ## Troubleshooting
 
@@ -235,13 +303,21 @@ python run_multi_source_analysis.py status
 ```
 
 #### Analysis Not Starting
-- Verify Gemini API key is set: `export GOOGLE_API_KEY=your_key`
+- Verify API proxy is running: `python api_proxy.py`
+- Check Vigint API key is set: `export VIGINT_API_KEY=your_key`
+- Ensure Gemini API key is set in api_proxy environment: `export GOOGLE_API_KEY=your_key`
 - Check video source URLs are accessible
-- Ensure sufficient system resources
+
+#### API Connection Errors
+- Verify API URL is correct (default: http://localhost:5000)
+- Check API key is valid
+- Ensure network connectivity to API server
+- Review api_proxy.py logs for errors
 
 #### Email Alerts Not Working
 - Verify email configuration in `config.ini`
-- Check SMTP credentials and server settings
+- Check Flash confirmation is occurring (not just Flash-Lite detection)
+- Review logs for "Flash vetoed" messages
 - Test email functionality with `test_email.py`
 
 ### Debug Mode

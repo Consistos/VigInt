@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Multi-Source Video Analyzer for Vigint
-Handles simultaneous analysis of multiple video sources with aggregation
+Handles simultaneous analysis of multiple video sources (aggregation disabled)
 """
 
 import cv2
@@ -12,10 +12,10 @@ import base64
 import os
 import tempfile
 import numpy as np
+import requests
 from datetime import datetime
 from collections import deque
 from concurrent.futures import ThreadPoolExecutor, as_completed
-import google.generativeai as genai
 from config import config
 from alerts import send_security_alert_with_video
 
@@ -161,27 +161,29 @@ class VideoSource:
 
 
 class MultiSourceVideoAnalyzer:
-    """Handles simultaneous analysis of multiple video sources with aggregation"""
+    """Handles simultaneous analysis of multiple video sources using api_proxy.py dual-buffer system"""
     
-    def __init__(self, api_key=None):
-        # Configure Gemini AI
-        self.gemini_api_key = api_key or os.getenv('GOOGLE_API_KEY')
-        if self.gemini_api_key:
-            genai.configure(
-                api_key=self.gemini_api_key,
-                transport='rest'
-            )
-            self.model = genai.GenerativeModel('gemini-1.5-flash')
-            logger.info("Gemini AI configured successfully")
+    def __init__(self, api_key=None, api_url=None):
+        # Configure API connection instead of direct Gemini
+        self.api_key = api_key or os.getenv('VIGINT_API_KEY')
+        self.api_url = api_url or config.api_server_url or 'http://localhost:5000'
+        
+        if not self.api_key:
+            logger.error("Vigint API key not found. Set VIGINT_API_KEY environment variable.")
         else:
-            logger.error("Gemini API key not found in environment variables")
-            self.model = None
+            logger.info(f"Multi-source analyzer configured to use API at {self.api_url}")
+        
+        self.api_headers = {
+            'X-API-Key': self.api_key,
+            'Content-Type': 'application/json'
+        }
         
         self.video_sources = {}
-        self.analysis_interval = 10  # Analyze every 10 seconds
+        self.analysis_interval = 3  # Analyze every 3 seconds (short buffer cycle)
         self.last_analysis_time = 0
         self.running = False
         self.analysis_thread = None
+        self.buffer_thread = None
         
         # Incident deduplication tracking
         self.last_incident_time = {}
@@ -236,6 +238,12 @@ class MultiSourceVideoAnalyzer:
         time.sleep(3)
         
         self.running = True
+        
+        # Start buffer thread to continuously send frames to API
+        self.buffer_thread = threading.Thread(target=self._buffer_loop, daemon=True)
+        self.buffer_thread.start()
+        
+        # Start analysis thread to trigger analysis
         self.analysis_thread = threading.Thread(target=self._analysis_loop, daemon=True)
         self.analysis_thread.start()
         
@@ -254,7 +262,9 @@ class MultiSourceVideoAnalyzer:
         for source in self.video_sources.values():
             source.stop()
         
-        # Wait for analysis thread to finish
+        # Wait for threads to finish
+        if self.buffer_thread:
+            self.buffer_thread.join(timeout=5)
         if self.analysis_thread:
             self.analysis_thread.join(timeout=10)
         
@@ -263,8 +273,46 @@ class MultiSourceVideoAnalyzer:
         
         logger.info("Multi-source video analysis stopped")
     
+    def _buffer_loop(self):
+        """Continuously send frames to API buffer"""
+        while self.running:
+            try:
+                for source in self.video_sources.values():
+                    if source.is_active():
+                        frame = source.get_current_frame()
+                        if frame is not None:
+                            # Convert frame to base64
+                            _, buffer_img = cv2.imencode('.jpg', frame)
+                            frame_base64 = base64.b64encode(buffer_img).decode('utf-8')
+                            
+                            # Send to API buffer
+                            try:
+                                response = requests.post(
+                                    f"{self.api_url}/api/video/multi-source/buffer",
+                                    headers=self.api_headers,
+                                    json={
+                                        'source_id': source.source_id,
+                                        'source_name': source.name,
+                                        'frame_data': frame_base64,
+                                        'frame_count': source.frame_count
+                                    },
+                                    timeout=5
+                                )
+                                
+                                if response.status_code != 200:
+                                    logger.warning(f"Failed to buffer frame for {source.name}: {response.status_code}")
+                            except Exception as e:
+                                logger.error(f"Error buffering frame for {source.name}: {e}")
+                
+                # Small delay between buffer updates
+                time.sleep(0.5)
+                
+            except Exception as e:
+                logger.error(f"Error in buffer loop: {e}")
+                time.sleep(1)
+    
     def _analysis_loop(self):
-        """Main analysis loop"""
+        """Main analysis loop - triggers API analysis every 3 seconds"""
         while self.running:
             try:
                 current_time = time.time()
@@ -276,8 +324,8 @@ class MultiSourceVideoAnalyzer:
                     active_sources = [s for s in self.video_sources.values() if s.is_active()]
                     
                     if active_sources:
-                        logger.info(f"Analyzing {len(active_sources)} active video sources")
-                        self._analyze_sources(active_sources)
+                        logger.info(f"Triggering analysis for {len(active_sources)} active sources")
+                        self._analyze_sources_via_api(active_sources)
                     else:
                         logger.warning("No active video sources for analysis")
                 
@@ -287,78 +335,73 @@ class MultiSourceVideoAnalyzer:
                 logger.error(f"Error in analysis loop: {e}")
                 time.sleep(5)
     
-    def _analyze_sources(self, active_sources):
-        """Analyze active video sources with aggregation logic"""
+    def _analyze_sources_via_api(self, active_sources):
+        """Analyze active video sources via API (uses dual-buffer Flash-Lite → Flash system)"""
         try:
-            num_sources = len(active_sources)
+            source_ids = [source.source_id for source in active_sources]
             
-            if num_sources >= 4:
-                # Group sources by 4 for aggregated analysis
-                groups = []
-                individual_sources = []
-                
-                # Create groups of 4
-                for i in range(0, num_sources, 4):
-                    group = active_sources[i:i+4]
-                    if len(group) == 4:
-                        groups.append(group)
-                    else:
-                        # Remainder sources stay individual
-                        individual_sources.extend(group)
-                
-                logger.info(f"Created {len(groups)} groups of 4 sources, {len(individual_sources)} individual sources")
-                
-                # Analyze groups in parallel
-                futures = []
-                
-                # Submit aggregated analysis tasks
-                for i, group in enumerate(groups):
-                    future = self.executor.submit(self._analyze_aggregated_group, group, f"group_{i+1}")
-                    futures.append(future)
-                
-                # Submit individual analysis tasks
-                for source in individual_sources:
-                    future = self.executor.submit(self._analyze_individual_source, source)
-                    futures.append(future)
-                
-                # Wait for all analyses to complete
-                for future in as_completed(futures, timeout=60):
-                    try:
-                        result = future.result()
-                        if result and result.get('incident_detected', False):
-                            self._handle_security_incident(result)
-                    except Exception as e:
-                        logger.error(f"Error in parallel analysis: {e}")
+            logger.info(f"Requesting API analysis for {len(source_ids)} sources")
             
-            else:
-                # Analyze all sources individually
-                logger.info(f"Analyzing {num_sources} sources individually")
+            # Call the multi-source analysis API
+            try:
+                response = requests.post(
+                    f"{self.api_url}/api/video/multi-source/analyze",
+                    headers=self.api_headers,
+                    json={'source_ids': source_ids},
+                    timeout=120  # Longer timeout for multi-source analysis
+                )
                 
-                futures = []
-                for source in active_sources:
-                    future = self.executor.submit(self._analyze_individual_source, source)
-                    futures.append(future)
+                if response.status_code != 200:
+                    logger.error(f"API analysis failed with status {response.status_code}: {response.text}")
+                    return
                 
-                # Wait for all analyses to complete
-                for future in as_completed(futures, timeout=60):
-                    try:
-                        result = future.result()
-                        if result and result.get('incident_detected', False):
-                            self._handle_security_incident(result)
-                    except Exception as e:
-                        logger.error(f"Error in individual analysis: {e}")
+                results = response.json()
+                
+                # Log summary
+                summary = results.get('summary', {})
+                logger.info(f"Analysis complete:")
+                logger.info(f"  - Flash-Lite detections: {summary.get('total_incidents_detected_by_flash_lite', 0)}")
+                logger.info(f"  - Flash confirmations: {summary.get('total_incidents_confirmed_by_flash', 0)}")
+                logger.info(f"  - Flash vetoes: {summary.get('total_incidents_vetoed', 0)}")
+                
+                # Process results per source
+                for source_id, analysis_result in results.get('sources', {}).items():
+                    if analysis_result.get('has_security_incident', False):
+                        # Flash confirmed the incident - handle it
+                        source = self.video_sources.get(source_id)
+                        if source:
+                            self._handle_security_incident(analysis_result, source)
+                    elif analysis_result.get('flash_veto', False):
+                        logger.info(f"🚫 Incident vetoed by Flash for source {source_id}")
+                
+            except requests.exceptions.Timeout:
+                logger.error("API analysis request timed out")
+            except requests.exceptions.RequestException as e:
+                logger.error(f"API request failed: {e}")
         
         except Exception as e:
-            logger.error(f"Error in source analysis: {e}")
+            logger.error(f"Error in API-based source analysis: {e}")
     
     def _analyze_individual_source(self, source):
-        """Analyze a single video source"""
+        """DEPRECATED: Analyze a single video source - now handled by API"""
+        # This method is no longer used - analysis is done via API
+        logger.warning("_analyze_individual_source called but is deprecated - use API instead")
+        return None
+        
+        # OLD CODE - kept for reference but not executed
+        """
         try:
+            # IMPORTANT: Capture frames BEFORE analysis to ensure video matches what Gemini sees
+            # Get recent frames first (8 seconds of context)
+            captured_frames = source.get_recent_frames(duration_seconds=8)
+            
+            # Get the most recent frame for analysis
             frame = source.get_current_frame()
             if frame is None:
                 return None
             
             logger.info(f"Analyzing individual source: {source.name}")
+            logger.info(f"Captured {len(captured_frames)} frames for video evidence")
             
             # Convert frame to base64 for Gemini API
             _, buffer_img = cv2.imencode('.jpg', frame)
@@ -366,16 +409,11 @@ class MultiSourceVideoAnalyzer:
             
             # Prepare the prompt
             prompt = f"""
-            Analyze the provided video frame from camera "{source.name}" for security incidents in a retail environment, with special focus on shoplifting behavior. Pay particular attention to:
+            Analyze the provided video carefully for security incidents in a retail environment, with special focus on shoplifting behavior. Pay particular attention to:
             1. Customers taking items and concealing them (in pockets, bags, clothing)
-            2. Unusual handling of merchandise (checking for security tags, looking around suspiciously)
+            2. Unusual handling of merchandise (checking for security tags)
             3. Taking items without paying
-            4. Groups working together to distract staff while items are taken
-            5. Removing packaging or security devices
-            6. Unusual movements around high-value items
-            7. Signs of nervousness or anxiety while handling merchandise
-            
-            Your analysis must be thorough and should err on the side of detecting potential security incidents rather than missing them.
+            4. Removing packaging or security devices
             
             Return ONLY the JSON object without markdown formatting, code blocks, or additional text.
             If no incidents are detected, return the JSON with incident_detected set to false.
@@ -383,7 +421,6 @@ class MultiSourceVideoAnalyzer:
             Your response must be a valid JSON object with the following structure:
             {{"incident_detected": boolean,  // true if an incident is detected, false otherwise
             "incident_type": string,     // Describe the type of incident (e.g.: shoplifting, theft, vandalism)
-            "confidence": float,         // confidence level between 0.0 and 1.0
             "description": string,       // brief description of what you see
             "analysis": string,          // detailed analysis of the video content
             "camera_name": string}}      // camera name for reference
@@ -397,11 +434,34 @@ class MultiSourceVideoAnalyzer:
                 {"mime_type": "image/jpeg", "data": frame_base64}
             ])
             
+            # Extract token usage from response metadata
+            token_usage = {
+                'prompt_tokens': 0,
+                'completion_tokens': 0,
+                'total_tokens': 0
+            }
+            
+            try:
+                if hasattr(response, 'usage_metadata'):
+                    token_usage['prompt_tokens'] = getattr(response.usage_metadata, 'prompt_token_count', 0)
+                    token_usage['completion_tokens'] = getattr(response.usage_metadata, 'candidates_token_count', 0)
+                    token_usage['total_tokens'] = getattr(response.usage_metadata, 'total_token_count', 0)
+                    
+                    logger.info(f"🔢 [{source.name}] Token usage - Prompt: {token_usage['prompt_tokens']}, "
+                               f"Completion: {token_usage['completion_tokens']}, "
+                               f"Total: {token_usage['total_tokens']}")
+            except Exception as token_error:
+                logger.warning(f"Could not extract token usage for {source.name}: {token_error}")
+            
             # Parse JSON response
-            analysis_result = self._parse_analysis_response(response.text, source)
+            analysis_result = self._parse_analysis_response(response.text, source, token_usage=token_usage)
             
             if analysis_result:
+                # Store the captured frames with the analysis result
+                # This ensures the video will show exactly what was analyzed
+                analysis_result['captured_frames'] = captured_frames
                 logger.info(f"Individual analysis completed for {source.name}: incident_detected={analysis_result.get('incident_detected', False)}")
+                logger.info(f"Stored {len(captured_frames)} frames with analysis result for accurate video evidence")
             
             return analysis_result
             
@@ -410,7 +470,7 @@ class MultiSourceVideoAnalyzer:
             return None
     
     def _analyze_aggregated_group(self, group_sources, group_name):
-        """Analyze a group of 4 video sources as an aggregated view"""
+        """DEPRECATED: Analyze a group of 4 video sources as an aggregated view (aggregation disabled)"""
         try:
             logger.info(f"Analyzing aggregated group: {group_name} with {len(group_sources)} sources")
             
@@ -467,7 +527,6 @@ class MultiSourceVideoAnalyzer:
             Your response must be a valid JSON object with the following structure:
             {{"incident_detected": boolean,  // true if an incident is detected, false otherwise
             "incident_type": string,     // Describe the type of incident (e.g.: shoplifting, theft, vandalism)
-            "confidence": float,         // confidence level between 0.0 and 1.0
             "description": string,       // brief description of what you see
             "analysis": string,          // detailed analysis of the video content
             "camera_group": string,      // group identifier
@@ -482,8 +541,27 @@ class MultiSourceVideoAnalyzer:
                 {"mime_type": "image/jpeg", "data": frame_base64}
             ])
             
+            # Extract token usage from response metadata
+            token_usage = {
+                'prompt_tokens': 0,
+                'completion_tokens': 0,
+                'total_tokens': 0
+            }
+            
+            try:
+                if hasattr(response, 'usage_metadata'):
+                    token_usage['prompt_tokens'] = getattr(response.usage_metadata, 'prompt_token_count', 0)
+                    token_usage['completion_tokens'] = getattr(response.usage_metadata, 'candidates_token_count', 0)
+                    token_usage['total_tokens'] = getattr(response.usage_metadata, 'total_token_count', 0)
+                    
+                    logger.info(f"🔢 [{group_name}] Token usage - Prompt: {token_usage['prompt_tokens']}, "
+                               f"Completion: {token_usage['completion_tokens']}, "
+                               f"Total: {token_usage['total_tokens']}")
+            except Exception as token_error:
+                logger.warning(f"Could not extract token usage for {group_name}: {token_error}")
+            
             # Parse JSON response
-            analysis_result = self._parse_analysis_response(response.text, None, group_name, source_names)
+            analysis_result = self._parse_analysis_response(response.text, None, group_name, source_names, token_usage=token_usage)
             
             if analysis_result:
                 logger.info(f"Aggregated analysis completed for {group_name}: incident_detected={analysis_result.get('incident_detected', False)}")
@@ -495,7 +573,7 @@ class MultiSourceVideoAnalyzer:
             return None
     
     def _create_composite_frame(self, frames, source_names):
-        """Create a composite frame from multiple source frames"""
+        """DEPRECATED: Create a composite frame from multiple source frames (aggregation disabled)"""
         try:
             if not frames:
                 return None
@@ -556,7 +634,7 @@ class MultiSourceVideoAnalyzer:
             logger.error(f"Error creating composite frame: {e}")
             return None
     
-    def _parse_analysis_response(self, response_text, source=None, group_name=None, source_names=None):
+    def _parse_analysis_response(self, response_text, source=None, group_name=None, source_names=None, token_usage=None):
         """Parse the analysis response from Gemini"""
         try:
             import json
@@ -577,11 +655,14 @@ class MultiSourceVideoAnalyzer:
                 'timestamp': datetime.now().isoformat(),
                 'incident_detected': analysis_json.get('incident_detected', False),
                 'incident_type': analysis_json.get('incident_type', ''),
-                'confidence': analysis_json.get('confidence', 0.0),
                 'description': analysis_json.get('description', ''),
                 'analysis': analysis_json.get('analysis', response_text),
                 'is_aggregated': group_name is not None
             }
+            
+            # Add token usage if provided
+            if token_usage:
+                analysis_result['token_usage'] = token_usage
             
             if source:
                 analysis_result.update({
@@ -609,7 +690,6 @@ class MultiSourceVideoAnalyzer:
                 'timestamp': datetime.now().isoformat(),
                 'incident_detected': incident_detected,
                 'incident_type': 'Unknown',
-                'confidence': 0.5,
                 'description': 'Analysis parsing failed',
                 'analysis': response_text,
                 'is_aggregated': group_name is not None,
@@ -619,17 +699,15 @@ class MultiSourceVideoAnalyzer:
                 'cameras_involved': source_names or []
             }
     
-    def _handle_security_incident(self, analysis_result):
-        """Handle detected security incident"""
+    def _handle_security_incident(self, analysis_result, source):
+        """Handle detected security incident (confirmed by Flash)"""
         try:
-            logger.warning("🚨 POTENTIAL SECURITY EVENT DETECTED!")
-            logger.warning(f"Analysis: {analysis_result['analysis'][:200]}...")
+            logger.warning("🚨 CONFIRMED SECURITY EVENT (Flash approved)")
+            logger.warning(f"Source: {source.name}")
+            logger.warning(f"Analysis: {analysis_result.get('analysis', '')[:200]}...")
             
             # Create incident signature for deduplication
-            if analysis_result.get('is_aggregated', False):
-                incident_key = f"group_{analysis_result.get('group_name', 'unknown')}"
-            else:
-                incident_key = f"source_{analysis_result.get('source_id', 'unknown')}"
+            incident_key = f"source_{source.source_id}"
             
             incident_signature = f"{analysis_result.get('incident_type', 'unknown')}_{analysis_result.get('analysis', '')[:50]}"
             
@@ -648,30 +726,20 @@ class MultiSourceVideoAnalyzer:
             self.last_incident_hash[incident_key] = incident_signature
             logger.info(f"📧 Sending NEW incident alert for {incident_key} (cooldown active for next {self.incident_cooldown}s)")
             
-            # Collect video frames from relevant sources
-            video_frames = []
+            # Collect video frames - API returns them in incident_frames
+            video_frames = analysis_result.get('incident_frames', [])
             
-            if analysis_result.get('is_aggregated', False):
-                # For aggregated analysis, collect frames from all involved cameras
-                camera_names = analysis_result.get('cameras_involved', [])
-                logger.info(f"Collecting video evidence from {len(camera_names)} cameras in group")
-                
-                for source in self.video_sources.values():
-                    if source.name in camera_names:
-                        frames = source.get_recent_frames(duration_seconds=8)
-                        video_frames.extend(frames)
-            else:
-                # For individual analysis, collect frames from the specific source
-                source_id = analysis_result.get('source_id')
-                if source_id and source_id in self.video_sources:
-                    frames = self.video_sources[source_id].get_recent_frames(duration_seconds=8)
-                    video_frames.extend(frames)
+            if not video_frames:
+                # Fallback: get recent frames from local buffer
+                logger.warning("No frames from API, using local buffer")
+                video_frames = source.get_recent_frames(duration_seconds=10)
+            
+            logger.info(f"Using {len(video_frames)} frames for video evidence")
             
             # Prepare incident data
             incident_data = {
                 'risk_level': 'HIGH',
                 'frame_count': analysis_result.get('frame_count', 0),
-                'confidence': analysis_result.get('confidence', 0.0),
                 'analysis': analysis_result.get('analysis', ''),
                 'incident_type': analysis_result.get('incident_type', ''),
                 'is_aggregated': analysis_result.get('is_aggregated', False),
@@ -679,36 +747,27 @@ class MultiSourceVideoAnalyzer:
             }
             
             # Create alert message in French
-            if analysis_result.get('is_aggregated', False):
-                cameras_list = ', '.join(analysis_result.get('cameras_involved', []))
-                message = f"""
-INCIDENT DE SÉCURITÉ DÉTECTÉ - ANALYSE MULTI-CAMÉRAS
+            formatted_time = datetime.now().strftime('%H:%M:%S - %d/%m/%Y')
+            
+            message = f"""
+🚨 ALERTE SÉCURITÉ VIGINT - INCIDENT CONFIRMÉ
 
-Heure: {analysis_result['timestamp']}
-Groupe de caméras: {analysis_result.get('group_name', 'Inconnu')}
-Caméras impliquées: {cameras_list}
+Heure: {formatted_time}
+Caméra: {source.name}
 Type d'incident: {analysis_result.get('incident_type', 'Non spécifié')}
-Niveau de confiance: {analysis_result.get('confidence', 0.0):.2f}
+
+✅ INCIDENT CONFIRMÉ PAR ANALYSE À DEUX NIVEAUX:
+   - Détection initiale: Gemini 2.5 Flash-Lite (buffer court - 3s)
+   - Confirmation finale: Gemini 2.5 Flash (buffer long - 10s)
 
 ANALYSE DÉTAILLÉE:
 {analysis_result.get('analysis', 'Aucune analyse disponible')}
 
-Cette alerte provient d'une analyse simultanée de plusieurs caméras.
-Veuillez examiner immédiatement les preuves vidéo ci-jointes.
-"""
-            else:
-                message = f"""
-INCIDENT DE SÉCURITÉ DÉTECTÉ
+📊 MÉTRIQUES D'ANALYSE:
+   - Frames analysées (confirmation): {analysis_result.get('incident_frames_count', 'N/A')}
+   - Statut Flash: CONFIRMÉ ✅
 
-Heure: {analysis_result['timestamp']}
-Caméra: {analysis_result.get('source_name', 'Inconnue')}
-Type d'incident: {analysis_result.get('incident_type', 'Non spécifié')}
-Niveau de confiance: {analysis_result.get('confidence', 0.0):.2f}
-
-ANALYSE DÉTAILLÉE:
-{analysis_result.get('analysis', 'Aucune analyse disponible')}
-
-Ceci est une alerte automatique du système de sécurité Vigint.
+⚠️  Cette alerte a été validée par notre système d'analyse à double buffer.
 Veuillez examiner immédiatement les preuves vidéo ci-jointes.
 """
             
@@ -755,19 +814,31 @@ def main():
     """Main function for testing multi-source video analysis"""
     import argparse
     
-    parser = argparse.ArgumentParser(description='Multi-Source Video Analyzer')
+    parser = argparse.ArgumentParser(description='Multi-Source Video Analyzer - Uses API with Dual-Buffer System')
     parser.add_argument('--sources', type=str, nargs='+', required=True,
                        help='RTSP URLs or video file paths')
     parser.add_argument('--names', type=str, nargs='*',
                        help='Names for the video sources')
-    parser.add_argument('--interval', type=int, default=10,
-                       help='Analysis interval in seconds (default: 10)')
+    parser.add_argument('--interval', type=int, default=3,
+                       help='Analysis interval in seconds (default: 3 - short buffer cycle)')
+    parser.add_argument('--api-key', type=str,
+                       help='Vigint API key (or set VIGINT_API_KEY env var)')
+    parser.add_argument('--api-url', type=str,
+                       help='API URL (default: http://localhost:5000)')
     
     args = parser.parse_args()
     
-    # Create analyzer
-    analyzer = MultiSourceVideoAnalyzer()
+    # Create analyzer with API configuration
+    analyzer = MultiSourceVideoAnalyzer(api_key=args.api_key, api_url=args.api_url)
     analyzer.analysis_interval = args.interval
+    
+    logger.info("=" * 60)
+    logger.info("Multi-Source Video Analyzer - Dual-Buffer System")
+    logger.info("=" * 60)
+    logger.info(f"API URL: {analyzer.api_url}")
+    logger.info(f"Analysis Interval: {args.interval}s (Flash-Lite screening)")
+    logger.info(f"Dual-Buffer: 3s (Flash-Lite) → 10s (Flash confirmation)")
+    logger.info("=" * 60)
     
     # Add video sources
     for i, source_url in enumerate(args.sources):

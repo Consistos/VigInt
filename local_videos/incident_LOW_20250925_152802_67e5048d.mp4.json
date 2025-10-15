@@ -1,0 +1,15 @@
+{
+  "video_id": "67e5048d-c058-4b2c-a6e8-cb9892957f24",
+  "upload_timestamp": "2025-09-25T15:28:02.253565",
+  "expiration_time": "2025-09-25T16:28:02.252703",
+  "source": "vigint-security-system",
+  "type": "security_incident",
+  "file_hash": "e34e676df56f3419ef563da6d209fc15373305a6890dbefe05b43fe4f1b0b95b",
+  "original_path": "/var/folders/7m/j0l91y0x66vc622xn6h1m7g80000gv/T/test_hybrid_hlwmqi6g.mp4",
+  "local_path": "local_videos/incident_LOW_20250925_152802_67e5048d.mp4",
+  "incident_type": "test_local_only",
+  "risk_level": "LOW",
+  "confidence": 0.6,
+  "frame_count": 25,
+  "analysis": "Testing local video service only"
+}
