@@ -275,37 +275,65 @@ class MultiSourceVideoAnalyzer:
     
     def _buffer_loop(self):
         """Continuously send frames to API buffer"""
+        # Track last sent frame index for each source to avoid duplicates
+        last_sent_index = {}
+        
         while self.running:
             try:
                 for source in self.video_sources.values():
                     if source.is_active():
-                        frame = source.get_current_frame()
-                        if frame is not None:
-                            # Convert frame to base64
-                            _, buffer_img = cv2.imencode('.jpg', frame)
-                            frame_base64 = base64.b64encode(buffer_img).decode('utf-8')
+                        # Get all frames from the buffer that haven't been sent yet
+                        source_id = source.source_id
+                        last_index = last_sent_index.get(source_id, -1)
+                        
+                        # Get frames from buffer starting after the last sent frame
+                        current_buffer_size = len(source.frame_buffer)
+                        
+                        if current_buffer_size > 0:
+                            # Send frames we haven't sent yet
+                            # Get the frame from buffer (convert from deque to list for indexing)
+                            buffer_list = list(source.frame_buffer)
                             
-                            # Send to API buffer
-                            try:
-                                response = requests.post(
-                                    f"{self.api_url}/api/video/multi-source/buffer",
-                                    headers=self.api_headers,
-                                    json={
-                                        'source_id': source.source_id,
-                                        'source_name': source.name,
-                                        'frame_data': frame_base64,
-                                        'frame_count': source.frame_count
-                                    },
-                                    timeout=5
-                                )
-                                
-                                if response.status_code != 200:
-                                    logger.warning(f"Failed to buffer frame for {source.name}: {response.status_code}")
-                            except Exception as e:
-                                logger.error(f"Error buffering frame for {source.name}: {e}")
+                            # Find frames to send (limit to avoid overwhelming API)
+                            frames_to_send = []
+                            for i in range(max(0, last_index + 1), current_buffer_size):
+                                if len(frames_to_send) < 10:  # Send up to 10 frames per cycle
+                                    frames_to_send.append(buffer_list[i])
+                            
+                            # Send each frame
+                            if len(frames_to_send) > 0:
+                                logger.debug(f"📤 Sending {len(frames_to_send)} frames to API buffer for {source.name}")
+                            
+                            for frame_info in frames_to_send:
+                                try:
+                                    # Frame is already base64 in buffer
+                                    response = requests.post(
+                                        f"{self.api_url}/api/video/multi-source/buffer",
+                                        headers=self.api_headers,
+                                        json={
+                                            'source_id': source.source_id,
+                                            'source_name': source.name,
+                                            'frame_data': frame_info['frame_data'],
+                                            'frame_count': frame_info.get('frame_count', source.frame_count)
+                                        },
+                                        timeout=5
+                                    )
+                                    
+                                    if response.status_code == 200:
+                                        last_sent_index[source_id] = buffer_list.index(frame_info)
+                                    else:
+                                        logger.warning(f"Failed to buffer frame for {source.name}: {response.status_code}")
+                                        break  # Stop sending more frames if one fails
+                                except Exception as e:
+                                    logger.error(f"Error buffering frame for {source.name}: {e}")
+                                    break
+                            
+                            # Reset index if buffer has rolled over (deque with maxlen)
+                            if last_sent_index.get(source_id, 0) >= current_buffer_size:
+                                last_sent_index[source_id] = current_buffer_size - 1
                 
-                # Small delay between buffer updates
-                time.sleep(0.5)
+                # Small delay between buffer updates (faster now since we send multiple frames)
+                time.sleep(0.1)
                 
             except Exception as e:
                 logger.error(f"Error in buffer loop: {e}")
@@ -387,87 +415,6 @@ class MultiSourceVideoAnalyzer:
         # This method is no longer used - analysis is done via API
         logger.warning("_analyze_individual_source called but is deprecated - use API instead")
         return None
-        
-        # OLD CODE - kept for reference but not executed
-        """
-        try:
-            # IMPORTANT: Capture frames BEFORE analysis to ensure video matches what Gemini sees
-            # Get recent frames first (8 seconds of context)
-            captured_frames = source.get_recent_frames(duration_seconds=8)
-            
-            # Get the most recent frame for analysis
-            frame = source.get_current_frame()
-            if frame is None:
-                return None
-            
-            logger.info(f"Analyzing individual source: {source.name}")
-            logger.info(f"Captured {len(captured_frames)} frames for video evidence")
-            
-            # Convert frame to base64 for Gemini API
-            _, buffer_img = cv2.imencode('.jpg', frame)
-            frame_base64 = base64.b64encode(buffer_img).decode('utf-8')
-            
-            # Prepare the prompt
-            prompt = f"""
-            Analyze the provided video carefully for security incidents in a retail environment, with special focus on shoplifting behavior. Pay particular attention to:
-            1. Customers taking items and concealing them (in pockets, bags, clothing)
-            2. Unusual handling of merchandise (checking for security tags)
-            3. Taking items without paying
-            4. Removing packaging or security devices
-            
-            Return ONLY the JSON object without markdown formatting, code blocks, or additional text.
-            If no incidents are detected, return the JSON with incident_detected set to false.
-            
-            Your response must be a valid JSON object with the following structure:
-            {{"incident_detected": boolean,  // true if an incident is detected, false otherwise
-            "incident_type": string,     // Describe the type of incident (e.g.: shoplifting, theft, vandalism)
-            "description": string,       // brief description of what you see
-            "analysis": string,          // detailed analysis of the video content
-            "camera_name": string}}      // camera name for reference
-            
-            Answer in French.
-            """
-            
-            # Send to Gemini for analysis
-            response = self.model.generate_content([
-                prompt,
-                {"mime_type": "image/jpeg", "data": frame_base64}
-            ])
-            
-            # Extract token usage from response metadata
-            token_usage = {
-                'prompt_tokens': 0,
-                'completion_tokens': 0,
-                'total_tokens': 0
-            }
-            
-            try:
-                if hasattr(response, 'usage_metadata'):
-                    token_usage['prompt_tokens'] = getattr(response.usage_metadata, 'prompt_token_count', 0)
-                    token_usage['completion_tokens'] = getattr(response.usage_metadata, 'candidates_token_count', 0)
-                    token_usage['total_tokens'] = getattr(response.usage_metadata, 'total_token_count', 0)
-                    
-                    logger.info(f"🔢 [{source.name}] Token usage - Prompt: {token_usage['prompt_tokens']}, "
-                               f"Completion: {token_usage['completion_tokens']}, "
-                               f"Total: {token_usage['total_tokens']}")
-            except Exception as token_error:
-                logger.warning(f"Could not extract token usage for {source.name}: {token_error}")
-            
-            # Parse JSON response
-            analysis_result = self._parse_analysis_response(response.text, source, token_usage=token_usage)
-            
-            if analysis_result:
-                # Store the captured frames with the analysis result
-                # This ensures the video will show exactly what was analyzed
-                analysis_result['captured_frames'] = captured_frames
-                logger.info(f"Individual analysis completed for {source.name}: incident_detected={analysis_result.get('incident_detected', False)}")
-                logger.info(f"Stored {len(captured_frames)} frames with analysis result for accurate video evidence")
-            
-            return analysis_result
-            
-        except Exception as e:
-            logger.error(f"Error analyzing individual source {source.source_id}: {e}")
-            return None
     
     def _analyze_aggregated_group(self, group_sources, group_name):
         """DEPRECATED: Analyze a group of 4 video sources as an aggregated view (aggregation disabled)"""
@@ -706,25 +653,28 @@ class MultiSourceVideoAnalyzer:
             logger.warning(f"Source: {source.name}")
             logger.warning(f"Analysis: {analysis_result.get('analysis', '')[:200]}...")
             
-            # Create incident signature for deduplication
-            incident_key = f"source_{source.source_id}"
+            # DEDUPLICATION TEMPORARILY DISABLED
+            # # Create incident signature for deduplication
+            # incident_key = f"source_{source.source_id}"
+            # 
+            # incident_signature = f"{analysis_result.get('incident_type', 'unknown')}_{analysis_result.get('analysis', '')[:50]}"
+            # 
+            # # Check if this is a duplicate incident (deduplication)
+            # current_time = time.time()
+            # last_time = self.last_incident_time.get(incident_key, 0)
+            # last_hash = self.last_incident_hash.get(incident_key, None)
+            # 
+            # if (current_time - last_time < self.incident_cooldown and last_hash == incident_signature):
+            #     logger.info(f"⏭️  Skipping duplicate incident alert for {incident_key}")
+            #     logger.info(f"   Time since last alert: {current_time - last_time:.1f}s / {self.incident_cooldown}s cooldown")
+            #     return
+            # 
+            # # Update incident tracking
+            # self.last_incident_time[incident_key] = current_time
+            # self.last_incident_hash[incident_key] = incident_signature
+            # logger.info(f"📧 Sending NEW incident alert for {incident_key} (cooldown active for next {self.incident_cooldown}s)")
             
-            incident_signature = f"{analysis_result.get('incident_type', 'unknown')}_{analysis_result.get('analysis', '')[:50]}"
-            
-            # Check if this is a duplicate incident (deduplication)
-            current_time = time.time()
-            last_time = self.last_incident_time.get(incident_key, 0)
-            last_hash = self.last_incident_hash.get(incident_key, None)
-            
-            if (current_time - last_time < self.incident_cooldown and last_hash == incident_signature):
-                logger.info(f"⏭️  Skipping duplicate incident alert for {incident_key}")
-                logger.info(f"   Time since last alert: {current_time - last_time:.1f}s / {self.incident_cooldown}s cooldown")
-                return
-            
-            # Update incident tracking
-            self.last_incident_time[incident_key] = current_time
-            self.last_incident_hash[incident_key] = incident_signature
-            logger.info(f"📧 Sending NEW incident alert for {incident_key} (cooldown active for next {self.incident_cooldown}s)")
+            logger.info(f"📧 Sending incident alert (DEDUPLICATION DISABLED)")
             
             # Collect video frames - API returns them in incident_frames
             video_frames = analysis_result.get('incident_frames', [])

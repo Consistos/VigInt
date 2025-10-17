@@ -633,8 +633,103 @@ def generate_incident_video(client_id, incident_analysis=None, buffer_type='long
         return {'success': False, 'error': str(e)}
 
 
+def analyze_short_video_for_security(frames, buffer_type="short"):
+    """Analyze SHORT VIDEO sequence for security incidents using Gemini AI"""
+    # Select appropriate model based on buffer type
+    if buffer_type == "short":
+        model = gemini_model_short
+    else:
+        model = gemini_model_long
+    
+    if not model or not frames:
+        return None
+    
+    frame_count = frames[-1]['frame_count'] if frames else 0
+    
+    try:
+        prompt = f"""
+        Analyze this SHORT VIDEO SEQUENCE ({len(frames)} frames over ~{len(frames)/25:.1f} seconds) for security incidents in a retail environment.
+        
+        IMPORTANT: This is a VIDEO, not a single image. Look for MOVEMENT and BEHAVIOR over time.
+        
+        Focus on shoplifting behavior:
+        1. Customers concealing merchandise (watch their MOVEMENTS)
+        2. Suspicious handling of items (track HOW they interact over time)
+        3. Taking items without paying (follow the PROGRESSION)
+        4. Removing security tags or packaging (watch the SEQUENCE)
+        
+        Return ONLY a JSON object without markdown formatting:
+        {{"incident_detected": boolean, "incident_type": string, "description": string, "analysis": string}}
+        
+        Answer in French.
+        """
+        
+        # Prepare video sequence
+        video_parts = [prompt]
+        for frame_info in frames:
+            video_parts.append({"mime_type": "image/jpeg", "data": frame_info['frame_data']})
+        
+        logger.info(f"🎬 Sending {len(frames)} frames to Flash-Lite for SHORT VIDEO analysis...")
+        response = model.generate_content(video_parts)
+        
+        # Parse JSON response
+        try:
+            import json
+            response_text = response.text.strip()
+            
+            # Handle JSON wrapped in markdown code blocks
+            if response_text.startswith('```json'):
+                start_idx = response_text.find('{')
+                end_idx = response_text.rfind('}') + 1
+                if start_idx != -1 and end_idx > start_idx:
+                    response_text = response_text[start_idx:end_idx]
+            
+            analysis_json = json.loads(response_text)
+            has_security_incident = analysis_json.get('incident_detected', False)
+            description = analysis_json.get('description', '')
+            analysis_text = analysis_json.get('analysis', '')
+            incident_type = analysis_json.get('incident_type', '')
+                
+        except (json.JSONDecodeError, KeyError) as e:
+            logger.warning(f"Failed to parse JSON response, falling back to text analysis: {e}")
+            analysis_text = response.text
+            analysis_text_lower = analysis_text.lower()
+            has_security_incident = 'incident_detected": true' in analysis_text_lower
+            
+            # Try to extract incident_type from text
+            incident_type = ""
+            if '"incident_type":' in analysis_text_lower:
+                try:
+                    import re
+                    match = re.search(r'"incident_type":\s*"([^"]*)"', analysis_text)
+                    if match:
+                        incident_type = match.group(1)
+                except Exception:
+                    pass
+        
+        # Determine risk level
+        risk_level = "HIGH" if has_security_incident else "LOW"
+        
+        logger.info(f"✅ SHORT VIDEO analysis: incident_detected={has_security_incident}")
+        
+        return {
+            'analysis': analysis_text,
+            'has_security_incident': has_security_incident,
+            'risk_level': risk_level,
+            'timestamp': datetime.now().isoformat(),
+            'frame_count': frame_count,
+            'incident_type': incident_type,
+            'video_analysis': True,
+            'frames_analyzed': len(frames)
+        }
+        
+    except Exception as e:
+        logger.error(f"Error in short video analysis: {e}")
+        return None
+
+
 def analyze_frame_for_security(frame_base64, frame_count, buffer_type="short"):
-    """Analyze frame for security incidents using Gemini AI"""
+    """DEPRECATED: Analyze single frame for security incidents using Gemini AI - use analyze_short_video_for_security instead"""
     # Select appropriate model based on buffer type
     if buffer_type == "short":
         model = gemini_model_short
@@ -949,11 +1044,13 @@ def analyze_frame():
         if not recent_frames:
             return jsonify({'error': 'Insufficient frames for analysis'}), 400
         
-        # Analyze the most recent frame for security incidents
-        latest_frame = recent_frames[-1]
-        analysis_result = analyze_frame_for_security(
-            latest_frame['frame_data'], 
-            latest_frame['frame_count'], 
+        # Analyze recent frames as a SHORT VIDEO sequence for security incidents
+        # Use the last ~2 seconds (up to 50 frames) for quick video analysis
+        frames_for_analysis = recent_frames[-50:] if len(recent_frames) > 50 else recent_frames
+        logger.info(f"🎥 Flash-Lite analyzing {len(frames_for_analysis)} frames as SHORT VIDEO (~{len(frames_for_analysis)/25:.1f}s)")
+        
+        analysis_result = analyze_short_video_for_security(
+            frames_for_analysis,
             "short"
         )
         
@@ -1115,13 +1212,14 @@ def analyze_multi_source():
                 }
                 continue
             
-            # Analyze most recent frame with Flash-Lite
-            latest_frame = recent_frames[-1]
-            source_name = latest_frame.get('source_name', source_id)
+            # Analyze recent frames as SHORT VIDEO with Flash-Lite
+            frames_for_analysis = recent_frames[-50:] if len(recent_frames) > 50 else recent_frames
+            source_name = recent_frames[-1].get('source_name', source_id)
             
-            analysis_result = analyze_frame_for_security(
-                latest_frame['frame_data'],
-                latest_frame['frame_count'],
+            logger.info(f"🎥 Flash-Lite analyzing {len(frames_for_analysis)} frames as SHORT VIDEO for source '{source_name}'")
+            
+            analysis_result = analyze_short_video_for_security(
+                frames_for_analysis,
                 "short"
             )
             
@@ -1703,94 +1801,104 @@ def generate_incident_summary(analysis_text, risk_level, detailed_analysis, tota
 
 
 def analyze_incident_context(frames):
-    """Analyze longer buffer for detailed incident context and confirm/reject incident"""
+    """Analyze longer buffer for detailed incident context and confirm/reject incident using VIDEO analysis"""
     if not frames or not gemini_model_long:
         return None
     
     try:
-        # Analyze first, middle, and last frames for context
-        key_frames = []
-        if len(frames) >= 3:
-            key_frames = [frames[0], frames[len(frames)//2], frames[-1]]
+        # Use video analysis by sending multiple frames as a sequence
+        # Sample frames evenly to stay within token limits (max ~50 frames for Gemini)
+        max_frames_for_analysis = 50
+        sampled_frames = frames
+        
+        if len(frames) > max_frames_for_analysis:
+            # Sample evenly across the duration
+            step = len(frames) // max_frames_for_analysis
+            sampled_frames = [frames[i] for i in range(0, len(frames), step)][:max_frames_for_analysis]
+            logger.info(f"📹 Sampled {len(sampled_frames)} frames from {len(frames)} total for VIDEO analysis")
         else:
-            key_frames = frames
+            logger.info(f"📹 Analyzing ALL {len(frames)} frames as VIDEO sequence")
         
-        context_analysis = []
-        incident_detected_count = 0  # Track how many frames detected incidents
+        # Build prompt for VIDEO analysis
+        prompt = f"""
+        Analyze this VIDEO SEQUENCE ({len(sampled_frames)} frames over ~{len(sampled_frames)/25:.1f} seconds) for retail security incidents.
         
-        for i, frame_info in enumerate(key_frames):
-            prompt = f"""
-            Analyze this frame for retail security incidents, focusing on shoplifting behavior.
-            Frame position: {'Start' if i == 0 else 'Middle' if i == 1 else 'End'} of incident sequence
+        IMPORTANT: This is a VIDEO, not a single image. Look for MOVEMENT and BEHAVIOR over time.
+        
+        Focus on:
+        1. Customers concealing merchandise (watch their MOVEMENTS)
+        2. Suspicious handling of items (track HOW they interact over time)
+        3. Groups working together (observe COORDINATION)
+        4. Removing security tags or packaging (watch the SEQUENCE of actions)
+        5. Taking items and leaving without payment (follow the PROGRESSION)
+        
+        Analyze the ENTIRE video sequence to understand context and behavior patterns.
+        A single suspicious pose is NOT enough - you must see SUSPICIOUS BEHAVIOR OVER TIME.
+        
+        Return ONLY a JSON object:
+        {{"incident_detected": boolean, "incident_type": string, "description": string, "analysis": string}}
+        
+        Answer in French.
+        """
+        
+        # Prepare video frames for Gemini (send as sequence)
+        video_parts = [prompt]
+        for frame_info in sampled_frames:
+            video_parts.append({"mime_type": "image/jpeg", "data": frame_info['frame_data']})
+        
+        logger.info(f"🎬 Sending {len(sampled_frames)} frames to Gemini Flash for VIDEO analysis...")
+        response = gemini_model_long.generate_content(video_parts)
+        
+        # Parse JSON response
+        incident_detected = False
+        try:
+            import json
+            response_text = response.text.strip()
             
-            Look for:
-            1. Customers concealing merchandise
-            2. Suspicious handling of items
-            3. Groups working together
-            4. Removing security tags or packaging
+            # Handle JSON wrapped in markdown code blocks
+            if response_text.startswith('```json'):
+                start_idx = response_text.find('{')
+                end_idx = response_text.rfind('}') + 1
+                if start_idx != -1 and end_idx > start_idx:
+                    response_text = response_text[start_idx:end_idx]
             
-            Return ONLY a JSON object:
-            {{"incident_detected": boolean, "incident_type": string, "description": string, "analysis": string}}
+            analysis_json = json.loads(response_text)
+            analysis_text = analysis_json.get('analysis', response.text)
+            incident_type = analysis_json.get('incident_type', '')
+            incident_detected = analysis_json.get('incident_detected', False)
+        except (json.JSONDecodeError, KeyError):
+            analysis_text = response.text
+            incident_type = ''
             
-            Answer in French.
-            """
+            # Try to extract incident_type and incident_detected from text
+            if '"incident_type":' in response.text.lower():
+                import re
+                match = re.search(r'"incident_type":\s*"([^"]*)"', response.text)
+                if match:
+                    incident_type = match.group(1)
             
-            response = gemini_model_long.generate_content([
-                prompt,
-                {"mime_type": "image/jpeg", "data": frame_info['frame_data']}
-            ])
-            
-            # Parse JSON response
-            incident_detected = False
-            try:
-                import json
-                response_text = response.text.strip()
-                
-                # Handle JSON wrapped in markdown code blocks
-                if response_text.startswith('```json'):
-                    start_idx = response_text.find('{')
-                    end_idx = response_text.rfind('}') + 1
-                    if start_idx != -1 and end_idx > start_idx:
-                        response_text = response_text[start_idx:end_idx]
-                
-                analysis_json = json.loads(response_text)
-                analysis_text = analysis_json.get('analysis', response.text)
-                incident_type = analysis_json.get('incident_type', '')
-                incident_detected = analysis_json.get('incident_detected', False)
-            except (json.JSONDecodeError, KeyError):
-                analysis_text = response.text
-                incident_type = ''
-                
-                # Try to extract incident_type and incident_detected from text
-                if '"incident_type":' in response.text.lower():
-                    import re
-                    match = re.search(r'"incident_type":\s*"([^"]*)"', response.text)
-                    if match:
-                        incident_type = match.group(1)
-                
-                # Check for incident_detected in text
-                if 'incident_detected": true' in response.text.lower():
-                    incident_detected = True
-            
-            # Count incidents detected
-            if incident_detected:
-                incident_detected_count += 1
-            
-            context_analysis.append({
-                'frame_position': 'Start' if i == 0 else 'Middle' if i == 1 else 'End',
-                'frame_count': frame_info['frame_count'],
-                'analysis': analysis_text,
-                'incident_type': incident_type,
-                'incident_detected': incident_detected
-            })
+            # Check for incident_detected in text
+            if 'incident_detected": true' in response.text.lower():
+                incident_detected = True
+        
+        # Build analysis summary for the entire video
+        context_analysis = [{
+            'frame_position': 'Video Sequence',
+            'frame_count': len(sampled_frames),
+            'analysis': analysis_text,
+            'incident_type': incident_type,
+            'incident_detected': incident_detected
+        }]
+        
+        logger.info(f"✅ VIDEO analysis complete: incident_detected={incident_detected}")
         
         # Return analysis with confirmation status
-        # Flash (long buffer) confirms incident if at least one frame detected it
         return {
             'frames': context_analysis,
-            'incident_confirmed': incident_detected_count > 0,
-            'confirmation_count': incident_detected_count,
-            'total_frames_analyzed': len(key_frames)
+            'incident_confirmed': incident_detected,
+            'confirmation_count': 1 if incident_detected else 0,
+            'total_frames_analyzed': len(sampled_frames),
+            'video_analysis': True
         }
         
     except Exception as e:

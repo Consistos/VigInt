@@ -224,8 +224,11 @@ class GDPRCompliantVideoService:
                 
                 # Ensure reasonable bounds for watchable video
                 target_fps = max(2.0, min(target_fps, 8.0))
+                logger.info(f"🎬 FPS calculated from analysis_interval: {target_fps:.2f} FPS")
+            else:
+                logger.info(f"🎬 Using provided target_fps: {target_fps:.2f} FPS")
             
-            logger.info(f"Creating GDPR video with {target_fps:.2f} FPS for natural playback")
+            logger.info(f"Creating GDPR video with {target_fps:.2f} FPS ({len(frames)} frames, ~{len(frames)/target_fps:.1f}s duration)")
             
             # Create video from frames
             from alerts import AlertManager

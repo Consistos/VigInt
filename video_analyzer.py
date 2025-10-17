@@ -744,7 +744,14 @@ Type d'incident: {analysis_result.get('incident_type', 'Non spécifié')}
             # IMPORTANT: Capture frames BEFORE analysis to ensure video matches what Gemini sees
             # Get recent frames first (10 seconds of context)
             captured_frames = self._get_recent_frames(duration_seconds=10)
-            logger.warning(f"Captured {len(captured_frames)} frames for video evidence")
+            logger.warning(f"📊 Buffer status: {len(self.frame_buffer)} frames total")
+            logger.warning(f"📹 Captured {len(captured_frames)} frames for video evidence")
+            
+            # Debug: Check frame timestamps to verify they're different
+            if len(captured_frames) > 1:
+                first_ts = captured_frames[0].get('timestamp', 'no-timestamp')
+                last_ts = captured_frames[-1].get('timestamp', 'no-timestamp')
+                logger.warning(f"⏱️  Frame range: {first_ts} → {last_ts}")
             
             # Get the latest frame for AI analysis
             latest_frame_info = self.frame_buffer[-1]
@@ -769,57 +776,58 @@ Type d'incident: {analysis_result.get('incident_type', 'Non spécifié')}
                     logger.warning("🚨 POTENTIAL SECURITY EVENT DETECTED!")
                     logger.warning(f"Analysis: {result['analysis']}")
                     
-                    try:
-                        # GLOBAL deduplication using persistent cache with VISUAL frame hashing
-                        # This prevents duplicates even if AI describes the scene differently
-                        analysis_text = result.get('analysis', '')
-                        incident_type = result.get('incident_type', 'unknown')
-                        
-                        logger.warning(f"🔍 Checking deduplication for incident type: {incident_type}")
-                        
-                        # Use VISUAL frame hash (not text) - same scene = same hash
-                        incident_hash = _get_incident_hash(analysis_text, frame=frame_array)
-                        logger.warning(f"   Generated visual hash: {incident_hash[:8]}...")
-                        
-                        # Use 5-minute cooldown for global cache (longer than local cooldown)
-                        is_duplicate, time_since = _check_duplicate_global(incident_hash, cooldown_seconds=300)
-                        logger.warning(f"   Duplicate check result: is_duplicate={is_duplicate}, time_since={time_since}")
-                    except Exception as dedup_error:
-                        logger.error(f"❌ Deduplication failed: {dedup_error}", exc_info=True)
-                        # Continue without deduplication on error
-                        is_duplicate = False
-                        time_since = None
-                    
-                    if is_duplicate:
-                        logger.warning(f"⏭️  Skipping GLOBAL duplicate incident (seen {time_since:.1f}s ago)")
-                        logger.warning(f"   Visual Hash: {incident_hash[:8]}... | Type: {incident_type}")
-                        logger.warning(f"   Same scene detected (AI may describe differently but visually identical)")
-                        return
-                    
-                    # Also check local instance deduplication (backup check)
-                    current_time = time.time()
-                    incident_signature = f"{incident_type}_{analysis_text[:50]}"
-                    
-                    if (current_time - self.last_incident_time < self.incident_cooldown and 
-                        self.last_incident_hash == incident_signature):
-                        logger.info(f"⏭️  Skipping local duplicate incident alert (cooldown: {self.incident_cooldown}s)")
-                        logger.info(f"   Time since last alert: {current_time - self.last_incident_time:.1f}s")
-                        return
-                    
-                    # Register incident in global cache
-                    _register_incident_global(incident_hash, incident_type)
-                    
-                    # Update local instance tracking
-                    self.last_incident_time = current_time
-                    self.last_incident_hash = incident_signature
+                    # DEDUPLICATION TEMPORARILY DISABLED
+                    # try:
+                    #     # GLOBAL deduplication using persistent cache with VISUAL frame hashing
+                    #     # This prevents duplicates even if AI describes the scene differently
+                    #     analysis_text = result.get('analysis', '')
+                    #     incident_type = result.get('incident_type', 'unknown')
+                    #     
+                    #     logger.warning(f"🔍 Checking deduplication for incident type: {incident_type}")
+                    #     
+                    #     # Use VISUAL frame hash (not text) - same scene = same hash
+                    #     incident_hash = _get_incident_hash(analysis_text, frame=frame_array)
+                    #     logger.warning(f"   Generated visual hash: {incident_hash[:8]}...")
+                    #     
+                    #     # Use 5-minute cooldown for global cache (longer than local cooldown)
+                    #     is_duplicate, time_since = _check_duplicate_global(incident_hash, cooldown_seconds=300)
+                    #     logger.warning(f"   Duplicate check result: is_duplicate={is_duplicate}, time_since={time_since}")
+                    # except Exception as dedup_error:
+                    #     logger.error(f"❌ Deduplication failed: {dedup_error}", exc_info=True)
+                    #     # Continue without deduplication on error
+                    #     is_duplicate = False
+                    #     time_since = None
+                    # 
+                    # if is_duplicate:
+                    #     logger.warning(f"⏭️  Skipping GLOBAL duplicate incident (seen {time_since:.1f}s ago)")
+                    #     logger.warning(f"   Visual Hash: {incident_hash[:8]}... | Type: {incident_type}")
+                    #     logger.warning(f"   Same scene detected (AI may describe differently but visually identical)")
+                    #     return
+                    # 
+                    # # Also check local instance deduplication (backup check)
+                    # current_time = time.time()
+                    # incident_signature = f"{incident_type}_{analysis_text[:50]}"
+                    # 
+                    # if (current_time - self.last_incident_time < self.incident_cooldown and 
+                    #     self.last_incident_hash == incident_signature):
+                    #     logger.info(f"⏭️  Skipping local duplicate incident alert (cooldown: {self.incident_cooldown}s)")
+                    #     logger.info(f"   Time since last alert: {current_time - self.last_incident_time:.1f}s")
+                    #     return
+                    # 
+                    # # Register incident in global cache
+                    # _register_incident_global(incident_hash, incident_type)
+                    # 
+                    # # Update local instance tracking
+                    # self.last_incident_time = current_time
+                    # self.last_incident_hash = incident_signature
                     
                     # Use pre-captured frames from analysis time (ensures video matches Gemini analysis)
                     video_frames = captured_frames
                     
                     logger.warning(f"📹 Using {len(video_frames)} pre-captured frames from analysis time")
                     logger.warning("🎬 Video shows exact footage that Gemini analyzed (no timing mismatch)")
-                    logger.warning(f"📧 Sending NEW incident alert (visual hash cached: {incident_hash[:8]}...)")
-                    logger.warning(f"   Cooldowns: Local {self.incident_cooldown}s | Global 300s (visual deduplication)")
+                    logger.warning(f"📧 Sending NEW incident alert (DEDUPLICATION DISABLED)")
+                    # logger.warning(f"   Cooldowns: Local {self.incident_cooldown}s | Global 300s (visual deduplication)")
                     
                     # Send alert email with video
                     self.send_alert_email(result, video_frames)
