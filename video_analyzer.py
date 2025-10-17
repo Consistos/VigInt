@@ -684,9 +684,6 @@ Type d'incident: {analysis_result.get('incident_type', 'Non spécifié')}
                         args=(),  # No frame argument - use buffer instead
                         daemon=True
                     ).start()
-                
-                # Small delay to prevent overwhelming the system
-                time.sleep(0.04)  # ~25 FPS capture rate
         
         except KeyboardInterrupt:
             logger.info("Video analysis stopped by user")
