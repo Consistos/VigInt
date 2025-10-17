@@ -2187,6 +2187,8 @@ La vidéo n'est pas disponible en ligne.
         alert_id = f"VIG-{incident_timestamp.strftime('%Y%m%d')}-{frame_count}-{risk_level}"
         
         response_data = {
+            'success': email_result['success'],  # Add success field for client compatibility
+            'error': email_result.get('last_error') if not email_result['success'] else None,  # Add error field for client
             'status': email_result['final_status'] if email_result['success'] else 'failed',
             'timestamp': incident_timestamp.isoformat(),
             'alert_id': alert_id,
@@ -2266,7 +2268,9 @@ La vidéo n'est pas disponible en ligne.
         
     except Exception as e:
         logger.error(f"Error sending alert: {e}")
-        return jsonify({'error': 'Failed to send alert'}), 500
+        import traceback
+        logger.error(f"Traceback: {traceback.format_exc()}")
+        return jsonify({'success': False, 'error': f'Failed to send alert: {str(e)}'}), 500
 
 
 @app.route('/api/storage/status')
