@@ -477,27 +477,36 @@ def create_video_from_frames(frames, output_path, fps=None, video_format=None, q
             if height % 2 != 0:
                 height -= 1
         
-        # Create video writer with high-quality codec options
+        # Create video writer with codec options ordered by compatibility
+        # Try most compatible codecs first (work without external encoders)
         codec_options = [
-            ('avc1', cv2.VideoWriter_fourcc(*'avc1')),
-            ('H264', cv2.VideoWriter_fourcc(*'H264')),
-            ('X264', cv2.VideoWriter_fourcc(*'X264')),
-            (codec, cv2.VideoWriter_fourcc(*codec))  # Original codec as fallback
+            ('mp4v', cv2.VideoWriter_fourcc(*'mp4v')),  # MPEG-4, most compatible
+            ('MJPG', cv2.VideoWriter_fourcc(*'MJPG')),  # Motion JPEG, very compatible
+            ('XVID', cv2.VideoWriter_fourcc(*'XVID')),  # Xvid codec
+            ('avc1', cv2.VideoWriter_fourcc(*'avc1')),  # H264 variant
+            ('X264', cv2.VideoWriter_fourcc(*'X264')),  # x264 codec
+            (codec, cv2.VideoWriter_fourcc(*codec))     # Original codec as fallback
         ]
         
         video_writer = None
         used_codec = None
         
         for codec_name, fourcc in codec_options:
-            video_writer = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
-            if video_writer.isOpened():
-                used_codec = codec_name
-                logger.info(f"Using {codec_name} codec for video creation")
-                break
-            else:
-                video_writer.release()
+            try:
+                video_writer = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
+                if video_writer.isOpened():
+                    used_codec = codec_name
+                    logger.info(f"✅ Using {codec_name} codec for video creation")
+                    break
+                else:
+                    video_writer.release()
+                    logger.debug(f"❌ {codec_name} codec not available")
+            except Exception as e:
+                logger.debug(f"❌ {codec_name} codec failed: {e}")
+                continue
         
         if not video_writer or not video_writer.isOpened():
+            logger.error(f"❌ Failed to initialize video writer - tried codecs: {[c[0] for c in codec_options]}")
             return {'success': False, 'error': 'Failed to initialize video writer with any codec', 'frames_processed': 0}
         
         frames_processed = 0
