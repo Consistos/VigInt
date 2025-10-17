@@ -1045,8 +1045,8 @@ def analyze_frame():
             return jsonify({'error': 'Insufficient frames for analysis'}), 400
         
         # Analyze recent frames as a SHORT VIDEO sequence for security incidents
-        # Use the last ~2 seconds (up to 50 frames) for quick video analysis
-        frames_for_analysis = recent_frames[-50:] if len(recent_frames) > 50 else recent_frames
+        # Use the last ~1 second (up to 25 frames) for quick video analysis to avoid token limits
+        frames_for_analysis = recent_frames[-25:] if len(recent_frames) > 25 else recent_frames
         logger.info(f"🎥 Flash-Lite analyzing {len(frames_for_analysis)} frames as SHORT VIDEO (~{len(frames_for_analysis)/25:.1f}s)")
         
         analysis_result = analyze_short_video_for_security(
@@ -1070,7 +1070,9 @@ def analyze_frame():
             cost=cost
         )
         
-        logger.info(f"Frame {latest_frame['frame_count']} analyzed for client {request.current_client.name}")
+        # Get frame count from the last frame analyzed
+        frame_count = frames_for_analysis[-1]['frame_count'] if frames_for_analysis else 0
+        logger.info(f"Video frames {frame_count - len(frames_for_analysis) + 1}-{frame_count} analyzed for client {request.current_client.name}")
         
         # If security incident detected by short buffer, trigger detailed analysis with long buffer
         if analysis_result['has_security_incident']:
@@ -1213,7 +1215,7 @@ def analyze_multi_source():
                 continue
             
             # Analyze recent frames as SHORT VIDEO with Flash-Lite
-            frames_for_analysis = recent_frames[-50:] if len(recent_frames) > 50 else recent_frames
+            frames_for_analysis = recent_frames[-25:] if len(recent_frames) > 25 else recent_frames
             source_name = recent_frames[-1].get('source_name', source_id)
             
             logger.info(f"🎥 Flash-Lite analyzing {len(frames_for_analysis)} frames as SHORT VIDEO for source '{source_name}'")
@@ -1807,8 +1809,8 @@ def analyze_incident_context(frames):
     
     try:
         # Use video analysis by sending multiple frames as a sequence
-        # Sample frames evenly to stay within token limits (max ~50 frames for Gemini)
-        max_frames_for_analysis = 50
+        # Sample frames evenly to stay within token limits (max ~30 frames for Gemini to avoid quota issues)
+        max_frames_for_analysis = 30
         sampled_frames = frames
         
         if len(frames) > max_frames_for_analysis:
