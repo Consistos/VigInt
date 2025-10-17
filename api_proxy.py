@@ -122,6 +122,9 @@ email_config = {
     'to_email': config.email_to
 }
 
+# Log email configuration status (without exposing sensitive data)
+logger.info(f"📧 Email config loaded - Username: {'✅ SET' if email_config['username'] else '❌ NOT SET'}, To: {'✅ SET' if email_config['to_email'] else '❌ NOT SET'}")
+
 # Video analysis configuration (server-side only)
 video_config = {
     'short_buffer_duration': config.getint('VideoAnalysis', 'short_buffer_duration', 3),
@@ -1917,7 +1920,14 @@ def send_security_alert():
     try:
         # Check email configuration
         if not email_config['username'] or not email_config['to_email']:
-            return jsonify({'error': 'Email not configured'}), 503
+            missing = []
+            if not email_config['username']:
+                missing.append('EMAIL_USERNAME')
+            if not email_config['to_email']:
+                missing.append('EMAIL_TO')
+            error_msg = f"Email not configured - Missing: {', '.join(missing)}"
+            logger.error(f"❌ {error_msg}")
+            return jsonify({'error': error_msg}), 503
         
         # Get alert data from request
         data = request.get_json()
