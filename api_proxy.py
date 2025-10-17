@@ -596,6 +596,30 @@ def generate_incident_video(client_id, incident_analysis=None, buffer_type='long
         if not incident_frames:
             return {'success': False, 'error': 'Insufficient frames for video generation'}
         
+        # Calculate ACTUAL FPS from frame timestamps to match capture rate
+        actual_fps = video_config['analysis_fps']  # Default
+        if len(incident_frames) >= 2:
+            try:
+                # Parse timestamps to calculate actual duration
+                from datetime import datetime
+                first_time = datetime.fromisoformat(incident_frames[0].get('timestamp', ''))
+                last_time = datetime.fromisoformat(incident_frames[-1].get('timestamp', ''))
+                duration_seconds = (last_time - first_time).total_seconds()
+                
+                if duration_seconds > 0:
+                    actual_fps = len(incident_frames) / duration_seconds
+                    logger.info(f"📊 Calculated actual FPS: {actual_fps:.2f} from {len(incident_frames)} frames over {duration_seconds:.2f}s")
+                    
+                    # Cap FPS to reasonable range
+                    if actual_fps < 10:
+                        logger.warning(f"⚠️  FPS too low ({actual_fps:.2f}), using 15 FPS")
+                        actual_fps = 15
+                    elif actual_fps > 35:
+                        logger.warning(f"⚠️  FPS too high ({actual_fps:.2f}), using 30 FPS") 
+                        actual_fps = 30
+            except Exception as e:
+                logger.warning(f"Could not calculate actual FPS from timestamps: {e}, using default {actual_fps}")
+        
         # Create secure temporary video file with incident-specific naming
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         risk_level = incident_analysis.get('risk_level', 'UNKNOWN') if incident_analysis else 'UNKNOWN'
@@ -614,11 +638,12 @@ def generate_incident_video(client_id, incident_analysis=None, buffer_type='long
         
         video_path = temp_result['path']
         
-        # Generate video with quality optimization
+        # Generate video with ACTUAL FPS for correct playback speed
+        logger.info(f"🎬 Creating video with {actual_fps:.2f} FPS for natural playback speed")
         result = create_video_from_frames(
             incident_frames, 
             video_path, 
-            fps=video_config['analysis_fps'],
+            fps=actual_fps,  # Use calculated FPS, not config FPS
             video_format=video_config['video_format'],
             quality_optimization=True
         )
@@ -660,15 +685,17 @@ def analyze_short_video_for_security(frames, buffer_type="short"):
     
     try:
         prompt = f"""
-        Analyze this SHORT VIDEO SEQUENCE ({len(frames)} frames over ~{len(frames)/25:.1f} seconds) for security incidents in a retail environment.
+        Analyze this COMPLETE SHORT VIDEO SEQUENCE ({len(frames)} frames over ~{len(frames)/25:.1f} seconds) for security incidents in a retail environment.
         
-        IMPORTANT: This is a VIDEO, not a single image. Look for MOVEMENT and BEHAVIOR over time.
+        IMPORTANT: This is a VIDEO showing {len(frames)/25:.1f} seconds of footage. Look for MOVEMENT and BEHAVIOR throughout the ENTIRE duration.
         
         Focus on shoplifting behavior:
-        1. Customers concealing merchandise (watch their MOVEMENTS)
+        1. Customers concealing merchandise (watch their MOVEMENTS throughout the video)
         2. Suspicious handling of items (track HOW they interact over time)
-        3. Taking items without paying (follow the PROGRESSION)
-        4. Removing security tags or packaging (watch the SEQUENCE)
+        3. Taking items without paying (follow the COMPLETE PROGRESSION)
+        4. Removing security tags or packaging (watch the ENTIRE SEQUENCE)
+        
+        Analyze the FULL video to understand the complete context. A single suspicious moment is not enough - look for patterns over time.
         
         Return ONLY a JSON object without markdown formatting:
         {{"incident_detected": boolean, "incident_type": string, "description": string, "analysis": string}}
@@ -1056,13 +1083,11 @@ def analyze_frame():
         if not recent_frames:
             return jsonify({'error': 'Insufficient frames for analysis'}), 400
         
-        # Analyze recent frames as a SHORT VIDEO sequence for security incidents
-        # Use the last ~1 second (up to 25 frames) for quick video analysis to avoid token limits
-        frames_for_analysis = recent_frames[-25:] if len(recent_frames) > 25 else recent_frames
-        logger.info(f"🎥 Flash-Lite analyzing {len(frames_for_analysis)} frames as SHORT VIDEO (~{len(frames_for_analysis)/25:.1f}s)")
+        # Analyze ALL frames in short buffer (3 seconds) as video
+        logger.info(f"🎥 Flash-Lite analyzing {len(recent_frames)} frames as SHORT VIDEO (~{len(recent_frames)/25:.1f}s)")
         
         analysis_result = analyze_short_video_for_security(
-            frames_for_analysis,
+            recent_frames,
             "short"
         )
         
@@ -1226,14 +1251,13 @@ def analyze_multi_source():
                 }
                 continue
             
-            # Analyze recent frames as SHORT VIDEO with Flash-Lite
-            frames_for_analysis = recent_frames[-25:] if len(recent_frames) > 25 else recent_frames
+            # Analyze ALL recent frames as SHORT VIDEO with Flash-Lite
             source_name = recent_frames[-1].get('source_name', source_id)
             
-            logger.info(f"🎥 Flash-Lite analyzing {len(frames_for_analysis)} frames as SHORT VIDEO for source '{source_name}'")
+            logger.info(f"🎥 Flash-Lite analyzing {len(recent_frames)} frames as SHORT VIDEO for source '{source_name}'")
             
             analysis_result = analyze_short_video_for_security(
-                frames_for_analysis,
+                recent_frames,
                 "short"
             )
             
@@ -1820,34 +1844,27 @@ def analyze_incident_context(frames):
         return None
     
     try:
-        # Use video analysis by sending multiple frames as a sequence
-        # Sample frames evenly to stay within token limits (max ~30 frames for Gemini to avoid quota issues)
-        max_frames_for_analysis = 30
-        sampled_frames = frames
-        
-        if len(frames) > max_frames_for_analysis:
-            # Sample evenly across the duration
-            step = len(frames) // max_frames_for_analysis
-            sampled_frames = [frames[i] for i in range(0, len(frames), step)][:max_frames_for_analysis]
-            logger.info(f"📹 Sampled {len(sampled_frames)} frames from {len(frames)} total for VIDEO analysis")
-        else:
-            logger.info(f"📹 Analyzing ALL {len(frames)} frames as VIDEO sequence")
+        # Analyze ALL frames from long buffer (10 seconds = ~250 frames)
+        # This ensures the AI sees the SAME video that will be sent in the email
+        logger.info(f"📹 Analyzing ALL {len(frames)} frames as FULL VIDEO sequence (~{len(frames)/25:.1f}s)")
         
         # Build prompt for VIDEO analysis
         prompt = f"""
-        Analyze this VIDEO SEQUENCE ({len(sampled_frames)} frames over ~{len(sampled_frames)/25:.1f} seconds) for retail security incidents.
+        Analyze this COMPLETE VIDEO SEQUENCE ({len(frames)} frames over ~{len(frames)/25:.1f} seconds) for retail security incidents.
         
-        IMPORTANT: This is a VIDEO, not a single image. Look for MOVEMENT and BEHAVIOR over time.
+        IMPORTANT: This is a FULL VIDEO, not just a few frames. Look for MOVEMENT and BEHAVIOR over the ENTIRE duration.
         
         Focus on:
-        1. Customers concealing merchandise (watch their MOVEMENTS)
+        1. Customers concealing merchandise (watch their MOVEMENTS throughout the video)
         2. Suspicious handling of items (track HOW they interact over time)
         3. Groups working together (observe COORDINATION)
         4. Removing security tags or packaging (watch the SEQUENCE of actions)
-        5. Taking items and leaving without payment (follow the PROGRESSION)
+        5. Taking items and leaving without payment (follow the COMPLETE PROGRESSION)
         
-        Analyze the ENTIRE video sequence to understand context and behavior patterns.
+        Analyze the ENTIRE video sequence to understand the full context and behavior patterns.
         A single suspicious pose is NOT enough - you must see SUSPICIOUS BEHAVIOR OVER TIME.
+        
+        This is the EXACT video that will be included in the security alert email, so your analysis should describe what security personnel will see when they watch it.
         
         Return ONLY a JSON object:
         {{"incident_detected": boolean, "incident_type": string, "description": string, "analysis": string}}
@@ -1855,12 +1872,12 @@ def analyze_incident_context(frames):
         Answer in French.
         """
         
-        # Prepare video frames for Gemini (send as sequence)
+        # Prepare ALL video frames for Gemini (send complete sequence)
         video_parts = [prompt]
-        for frame_info in sampled_frames:
+        for frame_info in frames:
             video_parts.append({"mime_type": "image/jpeg", "data": frame_info['frame_data']})
         
-        logger.info(f"🎬 Sending {len(sampled_frames)} frames to Gemini Flash for VIDEO analysis...")
+        logger.info(f"🎬 Sending ALL {len(frames)} frames to Gemini Flash for COMPLETE VIDEO analysis...")
         response = gemini_model_long.generate_content(video_parts)
         
         # Parse JSON response
@@ -1897,21 +1914,22 @@ def analyze_incident_context(frames):
         
         # Build analysis summary for the entire video
         context_analysis = [{
-            'frame_position': 'Video Sequence',
-            'frame_count': len(sampled_frames),
+            'frame_position': 'Complete Video Sequence',
+            'frame_count': len(frames),
             'analysis': analysis_text,
             'incident_type': incident_type,
             'incident_detected': incident_detected
         }]
         
-        logger.info(f"✅ VIDEO analysis complete: incident_detected={incident_detected}")
+        logger.info(f"✅ COMPLETE VIDEO analysis ({len(frames)} frames, ~{len(frames)/25:.1f}s): incident_detected={incident_detected}")
         
         # Return analysis with confirmation status
         return {
             'frames': context_analysis,
             'incident_confirmed': incident_detected,
             'confirmation_count': 1 if incident_detected else 0,
-            'total_frames_analyzed': len(sampled_frames),
+            'total_frames_analyzed': len(frames),
+            'video_duration_seconds': len(frames) / 25,
             'video_analysis': True
         }
         
