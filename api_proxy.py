@@ -1108,8 +1108,8 @@ def analyze_frame():
         )
         
         # Get frame count from the last frame analyzed
-        frame_count = frames_for_analysis[-1]['frame_count'] if frames_for_analysis else 0
-        logger.info(f"Video frames {frame_count - len(frames_for_analysis) + 1}-{frame_count} analyzed for client {request.current_client.name}")
+        frame_count = recent_frames[-1]['frame_count'] if recent_frames else 0
+        logger.info(f"Video frames {frame_count - len(recent_frames) + 1}-{frame_count} analyzed for client {request.current_client.name}")
         
         # If security incident detected by short buffer, trigger detailed analysis with long buffer
         if analysis_result['has_security_incident']:
