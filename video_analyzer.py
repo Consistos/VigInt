@@ -644,12 +644,20 @@ Type d'incident: {analysis_result.get('incident_type', 'Non spécifié')}
             logger.error(f"Failed to open RTSP stream: {rtsp_url}")
             return False
         
+        # Get source video FPS for proper timing
+        source_fps = cap.get(cv2.CAP_PROP_FPS)
+        if source_fps == 0 or source_fps > 120:  # Invalid or unrealistic FPS
+            source_fps = 30  # Default to 30 FPS
+        frame_delay = 1.0 / source_fps  # Time between frames
+        
         logger.info("Successfully connected to RTSP stream")
+        logger.info(f"📹 Source video FPS: {source_fps:.1f}")
         logger.info("Starting dual-buffer video analysis...")
         logger.info(f"📹 Buffering ALL frames continuously for smooth video")
         logger.info(f"🔍 Analyzing frames every {self.analysis_interval} seconds")
         
         self.running = True
+        last_frame_time = time.time()
         
         try:
             while self.running:
@@ -684,6 +692,13 @@ Type d'incident: {analysis_result.get('incident_type', 'Non spécifié')}
                         args=(),  # No frame argument - use buffer instead
                         daemon=True
                     ).start()
+                
+                # Maintain source video FPS timing - sleep to match frame rate
+                elapsed = time.time() - last_frame_time
+                sleep_time = frame_delay - elapsed
+                if sleep_time > 0:
+                    time.sleep(sleep_time)
+                last_frame_time = time.time()
         
         except KeyboardInterrupt:
             logger.info("Video analysis stopped by user")
