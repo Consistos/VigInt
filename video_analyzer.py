@@ -704,7 +704,7 @@ Type d'incident: {analysis_result.get('incident_type', 'Non spécifié')}
             frame_info = {
                 'frame_data': frame_base64,
                 'frame_count': self.frame_count,
-                'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                'timestamp': datetime.now().isoformat()  # ISO format with microseconds for accurate FPS calculation
             }
             
             self.frame_buffer.append(frame_info)
