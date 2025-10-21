@@ -1083,11 +1083,13 @@ def analyze_frame():
         if not recent_frames:
             return jsonify({'error': 'Insufficient frames for analysis'}), 400
         
-        # Analyze ALL frames in short buffer (3 seconds) as video
-        logger.info(f"🎥 Flash-Lite analyzing {len(recent_frames)} frames as SHORT VIDEO (~{len(recent_frames)/25:.1f}s)")
+        # Sample frames for Gemini to avoid API limits (25 frames ~= 1 second at 25 FPS)
+        # Full buffer will still be used for video creation
+        frames_for_analysis = recent_frames[-25:] if len(recent_frames) > 25 else recent_frames
+        logger.info(f"🎥 Flash-Lite analyzing {len(frames_for_analysis)} frames as SHORT VIDEO (~{len(frames_for_analysis)/25:.1f}s)")
         
         analysis_result = analyze_short_video_for_security(
-            recent_frames,
+            frames_for_analysis,
             "short"
         )
         
@@ -1120,8 +1122,12 @@ def analyze_frame():
             long_buffer_frames = video_config['long_buffer_duration'] * video_config['analysis_fps']
             incident_frames = list(client_buffer)[-long_buffer_frames:] if len(client_buffer) >= long_buffer_frames else list(client_buffer)
             
+            # Sample frames for Gemini to avoid API limits (30 frames for detailed analysis)
+            # Full buffer will still be used for video creation
+            frames_for_analysis = incident_frames[-30:] if len(incident_frames) > 30 else incident_frames
+            
             # Perform detailed analysis on the incident context
-            detailed_analysis = analyze_incident_context(incident_frames)
+            detailed_analysis = analyze_incident_context(frames_for_analysis)
             
             if detailed_analysis:
                 # Check if Flash (long buffer) confirms the incident
@@ -1251,13 +1257,15 @@ def analyze_multi_source():
                 }
                 continue
             
-            # Analyze ALL recent frames as SHORT VIDEO with Flash-Lite
+            # Sample frames for Gemini to avoid API limits (25 frames)
+            # Full buffer will still be used for video creation
+            frames_for_analysis = recent_frames[-25:] if len(recent_frames) > 25 else recent_frames
             source_name = recent_frames[-1].get('source_name', source_id)
             
-            logger.info(f"🎥 Flash-Lite analyzing {len(recent_frames)} frames as SHORT VIDEO for source '{source_name}'")
+            logger.info(f"🎥 Flash-Lite analyzing {len(frames_for_analysis)} frames as SHORT VIDEO for source '{source_name}'")
             
             analysis_result = analyze_short_video_for_security(
-                recent_frames,
+                frames_for_analysis,
                 "short"
             )
             
@@ -1844,27 +1852,25 @@ def analyze_incident_context(frames):
         return None
     
     try:
-        # Analyze ALL frames from long buffer (10 seconds = ~250 frames)
-        # This ensures the AI sees the SAME video that will be sent in the email
-        logger.info(f"📹 Analyzing ALL {len(frames)} frames as FULL VIDEO sequence (~{len(frames)/25:.1f}s)")
+        # Analyze sampled frames (caller provides 30 frames representing ~10 seconds)
+        # Full video buffer is still used for email video creation
+        logger.info(f"📹 Analyzing {len(frames)} sampled frames as VIDEO sequence (~{len(frames)/25:.1f}s)")
         
         # Build prompt for VIDEO analysis
         prompt = f"""
-        Analyze this COMPLETE VIDEO SEQUENCE ({len(frames)} frames over ~{len(frames)/25:.1f} seconds) for retail security incidents.
+        Analyze this VIDEO SEQUENCE ({len(frames)} frames sampled from a longer security video) for retail security incidents.
         
-        IMPORTANT: This is a FULL VIDEO, not just a few frames. Look for MOVEMENT and BEHAVIOR over the ENTIRE duration.
+        IMPORTANT: This is a VIDEO showing behavior over time. Look for MOVEMENT and BEHAVIOR PATTERNS.
         
         Focus on:
-        1. Customers concealing merchandise (watch their MOVEMENTS throughout the video)
+        1. Customers concealing merchandise (watch their MOVEMENTS throughout the sequence)
         2. Suspicious handling of items (track HOW they interact over time)
         3. Groups working together (observe COORDINATION)
         4. Removing security tags or packaging (watch the SEQUENCE of actions)
-        5. Taking items and leaving without payment (follow the COMPLETE PROGRESSION)
+        5. Taking items and leaving without payment (follow the PROGRESSION)
         
-        Analyze the ENTIRE video sequence to understand the full context and behavior patterns.
+        Analyze the entire sequence to understand the full context and behavior patterns.
         A single suspicious pose is NOT enough - you must see SUSPICIOUS BEHAVIOR OVER TIME.
-        
-        This is the EXACT video that will be included in the security alert email, so your analysis should describe what security personnel will see when they watch it.
         
         Return ONLY a JSON object:
         {{"incident_detected": boolean, "incident_type": string, "description": string, "analysis": string}}
@@ -1872,12 +1878,12 @@ def analyze_incident_context(frames):
         Answer in French.
         """
         
-        # Prepare ALL video frames for Gemini (send complete sequence)
+        # Prepare video frames for Gemini
         video_parts = [prompt]
         for frame_info in frames:
             video_parts.append({"mime_type": "image/jpeg", "data": frame_info['frame_data']})
         
-        logger.info(f"🎬 Sending ALL {len(frames)} frames to Gemini Flash for COMPLETE VIDEO analysis...")
+        logger.info(f"🎬 Sending {len(frames)} frames to Gemini Flash for VIDEO analysis...")
         response = gemini_model_long.generate_content(video_parts)
         
         # Parse JSON response
