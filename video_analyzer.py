@@ -402,8 +402,7 @@ class VideoAnalyzer:
             import os
             client_id = os.getenv('VIGINT_CLIENT_ID', 'default')
             
-            # Send entire short buffer (3 seconds = ~90 frames) as ONE batch
-            # This is the natural batching - no need to send frames continuously
+            # Get short buffer frames
             short_buffer_frames = self._get_recent_frames(duration_seconds=3)
             
             if not short_buffer_frames:
@@ -416,6 +415,14 @@ class VideoAnalyzer:
                     'frame_shape': frame.shape,
                     'token_usage': {}
                 }
+            
+            # Sample frames to keep payload under size limits (~1-2 MB)
+            # 75 frames × 150KB = 11MB is too large for Render
+            # Sample to 25 frames for manageable payload size
+            if len(short_buffer_frames) > 25:
+                # Evenly sample frames to maintain temporal coverage
+                indices = [int(i * len(short_buffer_frames) / 25) for i in range(25)]
+                short_buffer_frames = [short_buffer_frames[i] for i in indices]
             
             logger.info(f"📤 Sending batch of {len(short_buffer_frames)} frames to server in ONE request")
             
