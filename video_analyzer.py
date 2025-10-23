@@ -268,6 +268,11 @@ class VideoAnalyzer:
         # Continuous frame buffer - captures ALL frames for smooth video
         self.frame_buffer = deque(maxlen=max_frames)
         
+        # Server sync queue for batched uploads (only for remote API mode)
+        self.server_sync_queue = []
+        self.last_server_sync = time.time()
+        self.server_sync_interval = 1.0  # Send batch every 1 second
+        
         logger.info(f"📹 Dual buffer initialized:")
         logger.info(f"   - Continuous buffer: {self.long_buffer_duration}s ({max_frames} frames)")
         logger.info(f"   - Analysis interval: {self.analysis_interval}s")
@@ -715,6 +720,11 @@ Type d'incident: {analysis_result.get('incident_type', 'Non spécifié')}
                         daemon=True
                     ).start()
                 
+                # Periodically sync queued frames to server in batch
+                if current_time - self.last_server_sync >= self.server_sync_interval:
+                    self.last_server_sync = current_time
+                    threading.Thread(target=self._sync_frames_to_server, daemon=True).start()
+                
                 # Maintain source video FPS timing - sleep to match frame rate
                 elapsed = time.time() - last_frame_time
                 sleep_time = frame_delay - elapsed
@@ -749,35 +759,50 @@ Type d'incident: {analysis_result.get('incident_type', 'Non spécifié')}
             # Add to local buffer
             self.frame_buffer.append(frame_info)
             
-            # CRITICAL: Also send to server buffer when using remote API
-            # Send asynchronously to avoid blocking capture loop
+            # CRITICAL: Queue frame for batched server sync (remote API mode)
+            # This avoids overwhelming the server with 30 individual requests per second
             if self.use_remote_api and self.api_client:
-                try:
-                    import os
-                    import threading
-                    client_id = os.getenv('VIGINT_CLIENT_ID', 'default')
-                    
-                    # Send frame to server in background thread to avoid blocking
-                    def send_frame_async():
-                        try:
-                            self.api_client.add_frame_to_buffer(
-                                client_id=client_id,
-                                frame_data=frame_base64,
-                                timestamp=frame_timestamp,
-                                frame_count=self.frame_count
-                            )
-                        except Exception as e:
-                            if self.frame_count % 100 == 0:  # Log every 100 frames
-                                logger.warning(f"Failed to sync frame {self.frame_count} to server: {e}")
-                    
-                    threading.Thread(target=send_frame_async, daemon=True).start()
-                    
-                except Exception as api_error:
-                    if self.frame_count % 100 == 0:
-                        logger.warning(f"Failed to queue frame {self.frame_count} for server sync: {api_error}")
+                self.server_sync_queue.append({
+                    'frame_data': frame_base64,
+                    'timestamp': frame_timestamp,
+                    'frame_count': self.frame_count
+                })
             
         except Exception as e:
             logger.error(f"Error adding frame to buffer: {e}")
+    
+    def _sync_frames_to_server(self):
+        """Send batched frames to server - called periodically"""
+        if not self.use_remote_api or not self.api_client or not self.server_sync_queue:
+            return
+        
+        try:
+            import os
+            client_id = os.getenv('VIGINT_CLIENT_ID', 'default')
+            
+            # Send all queued frames in batch
+            frames_to_send = self.server_sync_queue[:]
+            self.server_sync_queue.clear()
+            
+            # Send batch to server
+            for frame_data in frames_to_send:
+                try:
+                    self.api_client.add_frame_to_buffer(
+                        client_id=client_id,
+                        frame_data=frame_data['frame_data'],
+                        timestamp=frame_data['timestamp'],
+                        frame_count=frame_data['frame_count']
+                    )
+                except Exception as e:
+                    # Log but don't fail entire batch
+                    if frame_data['frame_count'] % 100 == 0:
+                        logger.warning(f"Failed to sync frame {frame_data['frame_count']}: {e}")
+            
+            if len(frames_to_send) > 0:
+                logger.debug(f"✅ Synced {len(frames_to_send)} frames to server")
+                
+        except Exception as e:
+            logger.error(f"Error in batch server sync: {e}")
     
     def _get_recent_frames(self, duration_seconds=5):
         """Get recent frames from buffer for video creation"""
