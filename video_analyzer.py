@@ -565,6 +565,27 @@ Type d'incident: {analysis_result.get('incident_type', 'Non spécifié')}
                 import numpy as np
                 
                 if video_frames and len(video_frames) > 0:
+                    # Calculate actual FPS from frame timestamps
+                    actual_fps = self.buffer_fps  # Default
+                    if len(video_frames) >= 2:
+                        try:
+                            from datetime import datetime
+                            first_time = datetime.fromisoformat(video_frames[0].get('timestamp', ''))
+                            last_time = datetime.fromisoformat(video_frames[-1].get('timestamp', ''))
+                            duration_seconds = (last_time - first_time).total_seconds()
+                            
+                            if duration_seconds > 0:
+                                actual_fps = len(video_frames) / duration_seconds
+                                logger.info(f"📊 Client calculated FPS: {actual_fps:.2f} from {len(video_frames)} frames over {duration_seconds:.2f}s")
+                                
+                                # Cap to reasonable range
+                                if actual_fps < 10:
+                                    actual_fps = 15
+                                elif actual_fps > 60:
+                                    actual_fps = 60
+                        except Exception as e:
+                            logger.warning(f"Could not calculate FPS from timestamps: {e}, using default {actual_fps}")
+                    
                     # Decode first frame to get dimensions
                     first_frame = video_frames[0]
                     if isinstance(first_frame, dict):
@@ -580,7 +601,8 @@ Type d'incident: {analysis_result.get('incident_type', 'Non spécifié')}
                     
                     height, width = first_frame.shape[:2]
                     fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-                    out = cv2.VideoWriter(video_path, fourcc, self.buffer_fps, (width, height))
+                    logger.info(f"🎬 Creating client video with {actual_fps:.2f} FPS")
+                    out = cv2.VideoWriter(video_path, fourcc, actual_fps, (width, height))
                     
                     for frame_info in video_frames:
                         # Handle different frame formats
@@ -716,13 +738,33 @@ Type d'incident: {analysis_result.get('incident_type', 'Non spécifié')}
             _, buffer_img = cv2.imencode('.jpg', frame)
             frame_base64 = base64.b64encode(buffer_img).decode('utf-8')
             
+            frame_timestamp = datetime.now().isoformat()  # ISO format with microseconds for accurate FPS calculation
+            
             frame_info = {
                 'frame_data': frame_base64,
                 'frame_count': self.frame_count,
-                'timestamp': datetime.now().isoformat()  # ISO format with microseconds for accurate FPS calculation
+                'timestamp': frame_timestamp
             }
             
+            # Add to local buffer
             self.frame_buffer.append(frame_info)
+            
+            # CRITICAL: Also send to server buffer when using remote API
+            # This ensures server has continuous buffer for video creation
+            if self.use_remote_api and self.api_client:
+                try:
+                    import os
+                    client_id = os.getenv('VIGINT_CLIENT_ID', 'default')
+                    self.api_client.add_frame_to_buffer(
+                        client_id=client_id,
+                        frame_data=frame_base64,
+                        timestamp=frame_timestamp,
+                        frame_count=self.frame_count
+                    )
+                except Exception as api_error:
+                    # Don't fail on buffer sync errors, just log
+                    if self.frame_count % 100 == 0:  # Log every 100 frames to avoid spam
+                        logger.warning(f"Failed to sync frame {self.frame_count} to server buffer: {api_error}")
             
         except Exception as e:
             logger.error(f"Error adding frame to buffer: {e}")
