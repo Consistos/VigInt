@@ -1060,6 +1060,50 @@ def add_frame_to_buffer():
         return jsonify({'error': 'Failed to buffer frame'}), 500
 
 
+@app.route('/api/video/buffer/batch', methods=['POST'])
+@require_api_key_flexible
+def add_frames_batch():
+    """Add multiple frames to client's buffer in one request"""
+    try:
+        # Get frames array from request
+        data = request.get_json()
+        if not data or 'frames' not in data:
+            return jsonify({'error': 'Missing frames array'}), 400
+        
+        frames = data['frames']
+        if not isinstance(frames, list):
+            return jsonify({'error': 'frames must be an array'}), 400
+        
+        # Get client's frame buffer
+        client_buffer = get_client_buffer(request.current_client.id)
+        
+        # Add all frames to buffer
+        added_count = 0
+        for frame_data in frames:
+            if 'frame_data' not in frame_data:
+                continue
+            
+            frame_info = {
+                'frame_data': frame_data['frame_data'],
+                'frame_count': frame_data.get('frame_count', 0),
+                'timestamp': frame_data.get('timestamp', datetime.now().isoformat())
+            }
+            client_buffer.append(frame_info)
+            added_count += 1
+        
+        logger.info(f"📥 Batch added {added_count} frames to buffer for client {request.current_client.name}")
+        
+        return jsonify({
+            'status': 'buffered',
+            'frames_added': added_count,
+            'buffer_size': len(client_buffer)
+        })
+        
+    except Exception as e:
+        logger.error(f"Error buffering frame batch: {e}")
+        return jsonify({'error': 'Failed to buffer frames'}), 500
+
+
 @app.route('/api/video/analyze', methods=['POST'])
 @require_api_key_flexible
 def analyze_frame():

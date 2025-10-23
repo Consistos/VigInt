@@ -417,19 +417,26 @@ class VideoAnalyzer:
                     'token_usage': {}
                 }
             
-            logger.info(f"📤 Sending batch of {len(short_buffer_frames)} frames to server for analysis")
+            logger.info(f"📤 Sending batch of {len(short_buffer_frames)} frames to server in ONE request")
             
-            # Send all frames in buffer to server
-            for frame_info in short_buffer_frames:
-                try:
-                    self.api_client.add_frame_to_buffer(
-                        client_id=client_id,
-                        frame_data=frame_info['frame_data'],
-                        timestamp=frame_info['timestamp'],
-                        frame_count=frame_info['frame_count']
-                    )
-                except Exception as e:
-                    logger.warning(f"Failed to send frame {frame_info['frame_count']}: {e}")
+            # Send all frames as ONE batch request (not 75 individual requests!)
+            try:
+                self.api_client.add_frames_batch(
+                    client_id=client_id,
+                    frames=short_buffer_frames
+                )
+                logger.info(f"✅ Successfully sent {len(short_buffer_frames)} frames in batch")
+            except Exception as e:
+                logger.error(f"❌ Failed to send frame batch: {e}")
+                return {
+                    'timestamp': datetime.now().isoformat(),
+                    'frame_count': self.frame_count,
+                    'analysis': f'Failed to send buffer to server: {e}',
+                    'incident_detected': False,
+                    'incident_type': '',
+                    'frame_shape': frame.shape,
+                    'token_usage': {}
+                }
             
             # Request analysis of the buffer we just sent
             result = self.api_client.analyze_frame(

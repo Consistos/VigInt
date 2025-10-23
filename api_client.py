@@ -166,6 +166,23 @@ class APIClient:
         
         return self._make_request('POST', '/api/video/buffer', json=data)
     
+    def add_frames_batch(self, client_id: str, frames: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """
+        Add multiple frames to client's buffer in one request
+        
+        Args:
+            client_id: Client identifier (not used - server gets from auth)
+            frames: List of frame dictionaries with frame_data, timestamp, frame_count
+            
+        Returns:
+            Batch buffer status
+        """
+        data = {
+            'frames': frames
+        }
+        
+        return self._make_request('POST', '/api/video/buffer/batch', json=data)
+    
     def send_security_alert(self, analysis: str, risk_level: str, 
                           video_path: Optional[str] = None,
                           client_id: Optional[str] = None) -> Dict[str, Any]:
