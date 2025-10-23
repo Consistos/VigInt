@@ -750,21 +750,31 @@ Type d'incident: {analysis_result.get('incident_type', 'Non spécifié')}
             self.frame_buffer.append(frame_info)
             
             # CRITICAL: Also send to server buffer when using remote API
-            # This ensures server has continuous buffer for video creation
+            # Send asynchronously to avoid blocking capture loop
             if self.use_remote_api and self.api_client:
                 try:
                     import os
+                    import threading
                     client_id = os.getenv('VIGINT_CLIENT_ID', 'default')
-                    self.api_client.add_frame_to_buffer(
-                        client_id=client_id,
-                        frame_data=frame_base64,
-                        timestamp=frame_timestamp,
-                        frame_count=self.frame_count
-                    )
+                    
+                    # Send frame to server in background thread to avoid blocking
+                    def send_frame_async():
+                        try:
+                            self.api_client.add_frame_to_buffer(
+                                client_id=client_id,
+                                frame_data=frame_base64,
+                                timestamp=frame_timestamp,
+                                frame_count=self.frame_count
+                            )
+                        except Exception as e:
+                            if self.frame_count % 100 == 0:  # Log every 100 frames
+                                logger.warning(f"Failed to sync frame {self.frame_count} to server: {e}")
+                    
+                    threading.Thread(target=send_frame_async, daemon=True).start()
+                    
                 except Exception as api_error:
-                    # Don't fail on buffer sync errors, just log
-                    if self.frame_count % 100 == 0:  # Log every 100 frames to avoid spam
-                        logger.warning(f"Failed to sync frame {self.frame_count} to server buffer: {api_error}")
+                    if self.frame_count % 100 == 0:
+                        logger.warning(f"Failed to queue frame {self.frame_count} for server sync: {api_error}")
             
         except Exception as e:
             logger.error(f"Error adding frame to buffer: {e}")
