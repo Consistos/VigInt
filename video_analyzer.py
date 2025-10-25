@@ -607,100 +607,25 @@ Type d'incident: {analysis_result.get('incident_type', 'Non spécifié')}
             return False
     
     def _send_alert_remote(self, analysis_result, video_frames=None):
-        """Send alert via remote server"""
+        """Send alert via remote server - server creates video from its buffer"""
         try:
-            # Create video path if frames provided
-            video_path = None
-            if video_frames:
-                import tempfile
-                # Save frames as temporary video
-                temp_video = tempfile.NamedTemporaryFile(suffix='.mp4', delete=False)
-                video_path = temp_video.name
-                temp_video.close()
-                
-                # Create video from frames
-                import cv2
-                import base64
-                import numpy as np
-                
-                if video_frames and len(video_frames) > 0:
-                    # Calculate actual FPS from frame timestamps
-                    actual_fps = self.buffer_fps  # Default
-                    if len(video_frames) >= 2:
-                        try:
-                            from datetime import datetime
-                            first_time = datetime.fromisoformat(video_frames[0].get('timestamp', ''))
-                            last_time = datetime.fromisoformat(video_frames[-1].get('timestamp', ''))
-                            duration_seconds = (last_time - first_time).total_seconds()
-                            
-                            if duration_seconds > 0:
-                                actual_fps = len(video_frames) / duration_seconds
-                                logger.info(f"📊 Client calculated FPS: {actual_fps:.2f} from {len(video_frames)} frames over {duration_seconds:.2f}s")
-                                
-                                # Cap to reasonable range
-                                if actual_fps < 10:
-                                    actual_fps = 15
-                                elif actual_fps > 60:
-                                    actual_fps = 60
-                        except Exception as e:
-                            logger.warning(f"Could not calculate FPS from timestamps: {e}, using default {actual_fps}")
-                    
-                    # Decode first frame to get dimensions
-                    first_frame = video_frames[0]
-                    if isinstance(first_frame, dict):
-                        # Handle base64-encoded frame_data (distributed mode)
-                        if 'frame_data' in first_frame:
-                            frame_data = base64.b64decode(first_frame['frame_data'])
-                            first_frame = cv2.imdecode(np.frombuffer(frame_data, dtype=np.uint8), cv2.IMREAD_COLOR)
-                        # Handle decoded frame (local mode)
-                        elif 'frame' in first_frame:
-                            first_frame = first_frame['frame']
-                        else:
-                            raise ValueError("Frame dict has neither 'frame' nor 'frame_data'")
-                    
-                    height, width = first_frame.shape[:2]
-                    fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-                    logger.info(f"🎬 Creating client video with {actual_fps:.2f} FPS")
-                    out = cv2.VideoWriter(video_path, fourcc, actual_fps, (width, height))
-                    
-                    for frame_info in video_frames:
-                        # Handle different frame formats
-                        if isinstance(frame_info, dict):
-                            # Base64-encoded (distributed mode)
-                            if 'frame_data' in frame_info:
-                                frame_data = base64.b64decode(frame_info['frame_data'])
-                                frame = cv2.imdecode(np.frombuffer(frame_data, dtype=np.uint8), cv2.IMREAD_COLOR)
-                            # Decoded frame (local mode)
-                            elif 'frame' in frame_info:
-                                frame = frame_info['frame']
-                            else:
-                                logger.warning("Skipping frame with unknown format")
-                                continue
-                        else:
-                            # Raw numpy array
-                            frame = frame_info
-                        
-                        out.write(frame)
-                    
-                    out.release()
-                    logger.info(f"Created temporary video: {video_path}")
+            # NO local video creation - server will use frames already in its buffer
+            # This avoids uploading the video twice and fixes "Response ended prematurely" errors
+            
+            logger.info("📧 Sending alert to server (server will create video from buffer)")
             
             # Send alert to server
             # Server may return has_security_incident or incident_detected
             incident_detected = analysis_result.get('has_security_incident', analysis_result.get('incident_detected', False))
             risk_level = 'HIGH' if incident_detected else 'LOW'
+            
+            # Tell server to use buffer frames (no video_path = use buffer)
             result = self.api_client.send_security_alert(
                 analysis=analysis_result.get('analysis', ''),
                 risk_level=risk_level,
-                video_path=video_path
+                video_path=None,  # None = server creates video from buffer
+                use_server_buffer=True  # Explicit flag
             )
-            
-            # Clean up temporary file
-            if video_path and os.path.exists(video_path):
-                try:
-                    os.unlink(video_path)
-                except:
-                    pass
             
             if result.get('success'):
                 logger.info("✅ Alert sent via server successfully")

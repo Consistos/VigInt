@@ -209,15 +209,17 @@ class APIClient:
     
     def send_security_alert(self, analysis: str, risk_level: str, 
                           video_path: Optional[str] = None,
-                          client_id: Optional[str] = None) -> Dict[str, Any]:
+                          client_id: Optional[str] = None,
+                          use_server_buffer: bool = False) -> Dict[str, Any]:
         """
         Send security alert email
         
         Args:
             analysis: Analysis text
             risk_level: Risk level (LOW, MEDIUM, HIGH)
-            video_path: Path to video file (will be uploaded)
+            video_path: Path to video file (will be uploaded) - ignored if use_server_buffer=True
             client_id: Client identifier
+            use_server_buffer: If True, server creates video from its buffer instead of uploading
             
         Returns:
             Alert sending result
@@ -225,11 +227,12 @@ class APIClient:
         data = {
             'analysis': analysis,
             'risk_level': risk_level,
-            'client_id': client_id
+            'client_id': client_id,
+            'use_server_buffer': use_server_buffer
         }
         
-        # If video path provided, encode and include
-        if video_path:
+        # If video path provided AND not using server buffer, encode and include
+        if video_path and not use_server_buffer:
             try:
                 with open(video_path, 'rb') as f:
                     video_data = base64.b64encode(f.read()).decode('utf-8')
