@@ -259,11 +259,11 @@ class VideoAnalyzer:
         
         # Configuration for buffer durations
         self.short_buffer_duration = 5   # seconds for monitoring
-        self.long_buffer_duration = 15   # seconds for video evidence
+        self.long_buffer_duration = 10   # seconds for video evidence
         self.buffer_fps = 25             # target FPS for smooth video
         
         # Calculate buffer sizes
-        max_frames = self.long_buffer_duration * self.buffer_fps  # 375 frames for 15 seconds
+        max_frames = self.long_buffer_duration * self.buffer_fps  # 250 frames for 10 seconds
         
         # Continuous frame buffer - captures ALL frames for smooth video
         self.frame_buffer = deque(maxlen=max_frames)
@@ -397,15 +397,15 @@ class VideoAnalyzer:
             return self._mock_analysis(frame)
     
     def _analyze_frame_remote(self, frame):
-        """Send short buffer batch to server for analysis"""
+        """Send long buffer (10 seconds) as video to server for analysis"""
         try:
             import os
             client_id = os.getenv('VIGINT_CLIENT_ID', 'default')
             
-            # Get short buffer frames
-            short_buffer_frames = self._get_recent_frames(duration_seconds=3)
+            # Get long buffer frames (10 seconds for complete context)
+            buffer_frames = self._get_recent_frames(duration_seconds=10)
             
-            if not short_buffer_frames:
+            if not buffer_frames:
                 return {
                     'timestamp': datetime.now().isoformat(),
                     'frame_count': self.frame_count,
@@ -418,7 +418,7 @@ class VideoAnalyzer:
             
             # Create video from frames (much smaller than sending individual JPEGs)
             # Video compression: ~90% size reduction vs raw frames
-            logger.info(f"🎬 Creating video from {len(short_buffer_frames)} frames")
+            logger.info(f"🎬 Creating video from {len(buffer_frames)} frames (10 seconds)")
             
             try:
                 import tempfile
@@ -432,20 +432,20 @@ class VideoAnalyzer:
                 
                 # Calculate FPS from timestamps
                 actual_fps = 25  # Default
-                if len(short_buffer_frames) >= 2:
+                if len(buffer_frames) >= 2:
                     try:
-                        first_time = datetime.fromisoformat(short_buffer_frames[0]['timestamp'])
-                        last_time = datetime.fromisoformat(short_buffer_frames[-1]['timestamp'])
+                        first_time = datetime.fromisoformat(buffer_frames[0]['timestamp'])
+                        last_time = datetime.fromisoformat(buffer_frames[-1]['timestamp'])
                         duration_seconds = (last_time - first_time).total_seconds()
                         if duration_seconds > 0:
-                            actual_fps = len(short_buffer_frames) / duration_seconds
+                            actual_fps = len(buffer_frames) / duration_seconds
                             # Cap to reasonable range
                             actual_fps = max(10, min(actual_fps, 60))
                     except:
                         pass
                 
                 # Get frame dimensions
-                first_frame_data = base64.b64decode(short_buffer_frames[0]['frame_data'])
+                first_frame_data = base64.b64decode(buffer_frames[0]['frame_data'])
                 first_frame = cv2.imdecode(np.frombuffer(first_frame_data, dtype=np.uint8), cv2.IMREAD_COLOR)
                 height, width = first_frame.shape[:2]
                 
@@ -454,7 +454,7 @@ class VideoAnalyzer:
                 out = cv2.VideoWriter(video_path, fourcc, actual_fps, (width, height))
                 
                 # Write all frames
-                for frame_info in short_buffer_frames:
+                for frame_info in buffer_frames:
                     frame_data = base64.b64decode(frame_info['frame_data'])
                     frame = cv2.imdecode(np.frombuffer(frame_data, dtype=np.uint8), cv2.IMREAD_COLOR)
                     out.write(frame)
@@ -464,7 +464,7 @@ class VideoAnalyzer:
                 # Get video file size
                 import os
                 video_size_mb = os.path.getsize(video_path) / (1024 * 1024)
-                logger.info(f"📹 Created video: {video_size_mb:.2f} MB ({len(short_buffer_frames)} frames at {actual_fps:.1f} FPS)")
+                logger.info(f"📹 Created video: {video_size_mb:.2f} MB ({len(buffer_frames)} frames at {actual_fps:.1f} FPS)")
                 
                 # Upload video to server
                 logger.info(f"📤 Uploading video to server")
