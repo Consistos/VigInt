@@ -1130,8 +1130,18 @@ def upload_video():
         import cv2
         cap = cv2.VideoCapture(temp_video_path)
         
+        # Get video FPS to calculate proper timestamps
+        video_fps = cap.get(cv2.CAP_PROP_FPS)
+        if video_fps == 0 or video_fps > 120:
+            video_fps = 25  # Default
+        frame_duration = 1.0 / video_fps  # Time between frames in seconds
+        
         client_buffer = get_client_buffer(request.current_client.id)
         client_buffer.clear()  # Clear old frames
+        
+        # Base timestamp for the video start
+        from datetime import timedelta
+        base_time = datetime.now()
         
         frame_count = 0
         while True:
@@ -1143,10 +1153,13 @@ def upload_video():
             _, buffer_img = cv2.imencode('.jpg', frame)
             frame_base64 = base64.b64encode(buffer_img).decode('utf-8')
             
+            # Calculate timestamp based on frame position and video FPS
+            frame_time = base_time + timedelta(seconds=frame_count * frame_duration)
+            
             frame_info = {
                 'frame_data': frame_base64,
                 'frame_count': frame_count,
-                'timestamp': datetime.now().isoformat()
+                'timestamp': frame_time.isoformat()
             }
             client_buffer.append(frame_info)
             frame_count += 1
@@ -1160,7 +1173,7 @@ def upload_video():
         except:
             pass
         
-        logger.info(f"📹 Extracted {frame_count} frames from uploaded video for client {request.current_client.name}")
+        logger.info(f"📹 Extracted {frame_count} frames from uploaded video (FPS: {video_fps:.1f}) for client {request.current_client.name}")
         
         return jsonify({
             'status': 'uploaded',
