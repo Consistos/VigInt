@@ -53,8 +53,16 @@ class AlertManager:
                 
         return results
     
-    def send_email_alert(self, message, alert_type="info", video_path=None, incident_data=None):
-        """Send email alert with private video link instead of attachment"""
+    def send_email_alert(self, message, alert_type="info", video_path=None, incident_data=None, recipient_email=None):
+        """Send email alert with private video link instead of attachment
+        
+        Args:
+            message: Alert message text
+            alert_type: Type of alert (info, warning, security, etc.)
+            video_path: Optional path to video file
+            incident_data: Optional incident data dictionary
+            recipient_email: Optional recipient email address (if not provided, uses configured admin email)
+        """
         # Run periodic cleanup of old incident files
         self._periodic_cleanup()
         
@@ -78,10 +86,14 @@ class AlertManager:
                               self.config.get('Email', 'sender_password', None) or
                               self.config.get('Email', 'password', ''))
             
-            admin_email = (os.getenv('ADMIN_EMAIL') or 
-                          self.config.get('Alerts', 'admin_email', None) or 
-                          self.config.get('Email', 'admin_email', None) or
-                          self.config.get('Email', 'to_email', 'admin@vigint.com'))
+            # Use provided recipient_email if available, otherwise fall back to configured admin email
+            if recipient_email:
+                admin_email = recipient_email
+            else:
+                admin_email = (os.getenv('ADMIN_EMAIL') or 
+                              self.config.get('Alerts', 'admin_email', None) or 
+                              self.config.get('Email', 'admin_email', None) or
+                              self.config.get('Email', 'to_email', 'admin@vigint.com'))
             
             if not sender_password:
                 return {"success": False, "error": "No alert email password configured"}
@@ -709,8 +721,15 @@ def send_alert(message, alert_type="info", channels=None, video_path=None, incid
     return alert_manager.send_alert(message, alert_type, channels)
 
 
-def send_security_alert_with_video(message, frames=None, incident_data=None):
-    """Send security alert with video using GDPR-compliant cloud storage"""
+def send_security_alert_with_video(message, frames=None, incident_data=None, recipient_email=None):
+    """Send security alert with video using GDPR-compliant cloud storage
+    
+    Args:
+        message: Alert message text
+        frames: Optional list of video frames
+        incident_data: Optional incident data dictionary
+        recipient_email: Optional recipient email address (if not provided, uses configured admin email)
+    """
     alert_manager = AlertManager()
     
     video_path = None
@@ -753,7 +772,8 @@ def send_security_alert_with_video(message, frames=None, incident_data=None):
                         **(incident_data or {}),
                         'video_link_info': upload_result,
                         'gdpr_compliant': True
-                    }
+                    },
+                    recipient_email=recipient_email
                 )
                 
                 # Add video link info to result
@@ -767,7 +787,8 @@ def send_security_alert_with_video(message, frames=None, incident_data=None):
                 return alert_manager.send_email_alert(
                     message + "\n\n⚠️ Vidéo non disponible (échec du téléchargement sécurisé)",
                     alert_type="security",
-                    incident_data=incident_data
+                    incident_data=incident_data,
+                    recipient_email=recipient_email
                 )
         
         except Exception as e:
@@ -780,7 +801,8 @@ def send_security_alert_with_video(message, frames=None, incident_data=None):
         message, 
         alert_type="security", 
         video_path=video_path,
-        incident_data=incident_data
+        incident_data=incident_data,
+        recipient_email=recipient_email
     )
     
     # Note: GDPR service automatically deletes local files, no manual cleanup needed

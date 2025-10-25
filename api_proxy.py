@@ -2131,16 +2131,17 @@ def send_security_alert():
     start_time = time.time()
     
     try:
-        # Check email configuration
-        if not email_config['username'] or not email_config['to_email']:
-            missing = []
-            if not email_config['username']:
-                missing.append('EMAIL_USERNAME')
-            if not email_config['to_email']:
-                missing.append('EMAIL_TO')
-            error_msg = f"Email not configured - Missing: {', '.join(missing)}"
+        # Check email configuration (EMAIL_TO no longer needed, using client's email)
+        if not email_config['username']:
+            error_msg = "Email not configured - Missing: EMAIL_USERNAME"
             logger.error(f"❌ {error_msg}")
             return jsonify({'error': error_msg}), 503
+        
+        # Verify client has an email address configured
+        if not request.current_client.email:
+            error_msg = "Client email address not configured in database"
+            logger.error(f"❌ {error_msg}")
+            return jsonify({'error': error_msg}), 400
         
         # Get alert data from request
         data = request.get_json()
@@ -2184,7 +2185,8 @@ def send_security_alert():
         # Create email message
         msg = MIMEMultipart()
         msg['From'] = email_config['from_email'] or email_config['username']
-        msg['To'] = email_config['to_email']
+        # Send to the client's email address instead of configured EMAIL_TO
+        msg['To'] = request.current_client.email
         
         # Create subject with incident type if available (in French)
         subject = f"🚨 Alerte Sécurité Vigint [{risk_level}]"
@@ -2378,7 +2380,7 @@ La vidéo n'est pas disponible en ligne.
             'status': email_result['final_status'] if email_result['success'] else 'failed',
             'timestamp': incident_timestamp.isoformat(),
             'alert_id': alert_id,
-            'to': email_config['to_email'],
+            'to': request.current_client.email,
             'client_name': request.current_client.name,
             'risk_level': risk_level,
             'frame_count': frame_count,
