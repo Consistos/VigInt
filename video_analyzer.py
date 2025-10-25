@@ -416,29 +416,77 @@ class VideoAnalyzer:
                     'token_usage': {}
                 }
             
-            # Sample frames to keep payload under size limits (~1-2 MB)
-            # 75 frames × 150KB = 11MB is too large for Render
-            # Sample to 25 frames for manageable payload size
-            if len(short_buffer_frames) > 25:
-                # Evenly sample frames to maintain temporal coverage
-                indices = [int(i * len(short_buffer_frames) / 25) for i in range(25)]
-                short_buffer_frames = [short_buffer_frames[i] for i in indices]
+            # Create video from frames (much smaller than sending individual JPEGs)
+            # Video compression: ~90% size reduction vs raw frames
+            logger.info(f"🎬 Creating video from {len(short_buffer_frames)} frames")
             
-            logger.info(f"📤 Sending batch of {len(short_buffer_frames)} frames to server in ONE request")
-            
-            # Send all frames as ONE batch request (not 75 individual requests!)
             try:
-                self.api_client.add_frames_batch(
+                import tempfile
+                import base64
+                import numpy as np
+                
+                # Create temporary video file
+                temp_video = tempfile.NamedTemporaryFile(suffix='.mp4', delete=False)
+                video_path = temp_video.name
+                temp_video.close()
+                
+                # Calculate FPS from timestamps
+                actual_fps = 25  # Default
+                if len(short_buffer_frames) >= 2:
+                    try:
+                        first_time = datetime.fromisoformat(short_buffer_frames[0]['timestamp'])
+                        last_time = datetime.fromisoformat(short_buffer_frames[-1]['timestamp'])
+                        duration_seconds = (last_time - first_time).total_seconds()
+                        if duration_seconds > 0:
+                            actual_fps = len(short_buffer_frames) / duration_seconds
+                            # Cap to reasonable range
+                            actual_fps = max(10, min(actual_fps, 60))
+                    except:
+                        pass
+                
+                # Get frame dimensions
+                first_frame_data = base64.b64decode(short_buffer_frames[0]['frame_data'])
+                first_frame = cv2.imdecode(np.frombuffer(first_frame_data, dtype=np.uint8), cv2.IMREAD_COLOR)
+                height, width = first_frame.shape[:2]
+                
+                # Create video writer with H.264 codec for compression
+                fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+                out = cv2.VideoWriter(video_path, fourcc, actual_fps, (width, height))
+                
+                # Write all frames
+                for frame_info in short_buffer_frames:
+                    frame_data = base64.b64decode(frame_info['frame_data'])
+                    frame = cv2.imdecode(np.frombuffer(frame_data, dtype=np.uint8), cv2.IMREAD_COLOR)
+                    out.write(frame)
+                
+                out.release()
+                
+                # Get video file size
+                import os
+                video_size_mb = os.path.getsize(video_path) / (1024 * 1024)
+                logger.info(f"📹 Created video: {video_size_mb:.2f} MB ({len(short_buffer_frames)} frames at {actual_fps:.1f} FPS)")
+                
+                # Upload video to server
+                logger.info(f"📤 Uploading video to server")
+                self.api_client.upload_video_for_analysis(
                     client_id=client_id,
-                    frames=short_buffer_frames
+                    video_path=video_path
                 )
-                logger.info(f"✅ Successfully sent {len(short_buffer_frames)} frames in batch")
+                
+                # Cleanup temp file
+                try:
+                    os.unlink(video_path)
+                except:
+                    pass
+                
+                logger.info(f"✅ Successfully uploaded video")
+                
             except Exception as e:
-                logger.error(f"❌ Failed to send frame batch: {e}")
+                logger.error(f"❌ Failed to create/upload video: {e}")
                 return {
                     'timestamp': datetime.now().isoformat(),
                     'frame_count': self.frame_count,
-                    'analysis': f'Failed to send buffer to server: {e}',
+                    'analysis': f'Failed to send video to server: {e}',
                     'incident_detected': False,
                     'incident_type': '',
                     'frame_shape': frame.shape,

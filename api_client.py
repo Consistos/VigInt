@@ -183,6 +183,30 @@ class APIClient:
         
         return self._make_request('POST', '/api/video/buffer/batch', json=data)
     
+    def upload_video_for_analysis(self, client_id: str, video_path: str) -> Dict[str, Any]:
+        """
+        Upload video file for analysis (replaces frame batch upload)
+        
+        Args:
+            client_id: Client identifier
+            video_path: Path to video file to upload
+            
+        Returns:
+            Upload result with buffer status
+        """
+        try:
+            with open(video_path, 'rb') as f:
+                video_data = base64.b64encode(f.read()).decode('utf-8')
+            
+            data = {
+                'video_data': video_data,
+                'video_filename': video_path.split('/')[-1]
+            }
+            
+            return self._make_request('POST', '/api/video/upload', json=data)
+        except Exception as e:
+            raise Exception(f"Failed to upload video: {e}")
+    
     def send_security_alert(self, analysis: str, risk_level: str, 
                           video_path: Optional[str] = None,
                           client_id: Optional[str] = None) -> Dict[str, Any]:

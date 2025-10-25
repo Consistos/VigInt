@@ -1104,6 +1104,75 @@ def add_frames_batch():
         return jsonify({'error': 'Failed to buffer frames'}), 500
 
 
+@app.route('/api/video/upload', methods=['POST'])
+@require_api_key_flexible
+def upload_video():
+    """Upload video file and extract frames to buffer"""
+    try:
+        data = request.get_json()
+        if not data or 'video_data' not in data:
+            return jsonify({'error': 'Missing video data'}), 400
+        
+        video_base64 = data['video_data']
+        video_filename = data.get('video_filename', 'uploaded.mp4')
+        
+        # Decode video
+        import base64
+        video_bytes = base64.b64decode(video_base64)
+        
+        # Save to temp file
+        import tempfile
+        with tempfile.NamedTemporaryFile(suffix='.mp4', delete=False) as temp_video:
+            temp_video.write(video_bytes)
+            temp_video_path = temp_video.name
+        
+        # Extract frames from video using OpenCV
+        import cv2
+        cap = cv2.VideoCapture(temp_video_path)
+        
+        client_buffer = get_client_buffer(request.current_client.id)
+        client_buffer.clear()  # Clear old frames
+        
+        frame_count = 0
+        while True:
+            ret, frame = cap.read()
+            if not ret:
+                break
+            
+            # Encode frame to base64
+            _, buffer_img = cv2.imencode('.jpg', frame)
+            frame_base64 = base64.b64encode(buffer_img).decode('utf-8')
+            
+            frame_info = {
+                'frame_data': frame_base64,
+                'frame_count': frame_count,
+                'timestamp': datetime.now().isoformat()
+            }
+            client_buffer.append(frame_info)
+            frame_count += 1
+        
+        cap.release()
+        
+        # Cleanup temp file
+        import os
+        try:
+            os.unlink(temp_video_path)
+        except:
+            pass
+        
+        logger.info(f"📹 Extracted {frame_count} frames from uploaded video for client {request.current_client.name}")
+        
+        return jsonify({
+            'status': 'uploaded',
+            'frames_extracted': frame_count,
+            'buffer_size': len(client_buffer)
+        })
+        
+    except Exception as e:
+        logger.error(f"Error uploading video: {e}")
+        return jsonify({'error': 'Failed to process video'}), 500
+
+
 @app.route('/api/video/analyze', methods=['POST'])
 @require_api_key_flexible
 def analyze_frame():
