@@ -565,9 +565,9 @@ def create_video_from_frames(frames, output_path, fps=None, video_format=None, q
         return {'success': False, 'error': str(e), 'frames_processed': 0}
 
 
-def generate_incident_video(client_id, incident_analysis=None, buffer_type='long'):
+def generate_incident_video(client_id, incident_analysis, buffer_type='long'):
     """
-    Generate a video specifically for security incidents with enhanced metadata
+    Generate video for incident documentation (use uploaded video directly)
     
     Args:
         client_id: ID of the client
@@ -578,54 +578,25 @@ def generate_incident_video(client_id, incident_analysis=None, buffer_type='long
         dict: Result with video path and metadata
     """
     try:
-        # Get client's frame buffer
-        client_buffer = get_client_buffer(client_id)
+        # Get client's video metadata
+        if client_id not in client_frame_buffers:
+            return {'success': False, 'error': 'No video uploaded'}
         
-        if len(client_buffer) == 0:
-            return {'success': False, 'error': 'No frames in buffer'}
+        video_meta = client_frame_buffers[client_id]
+        if not video_meta or video_meta.get('type') != 'video':
+            return {'success': False, 'error': 'No video in buffer'}
         
-        # Determine buffer duration and frames to use
-        if buffer_type == 'short':
-            buffer_duration = video_config['short_buffer_duration']
-        else:
-            buffer_duration = video_config['long_buffer_duration']
+        source_video_path = video_meta.get('video_path')
+        if not source_video_path or not os.path.exists(source_video_path):
+            return {'success': False, 'error': 'Video file not found'}
         
-        required_frames = buffer_duration * video_config['analysis_fps']
-        incident_frames = list(client_buffer)[-required_frames:] if len(client_buffer) >= required_frames else list(client_buffer)
-        
-        if not incident_frames:
-            return {'success': False, 'error': 'Insufficient frames for video generation'}
-        
-        # Calculate ACTUAL FPS from frame timestamps to match capture rate
-        actual_fps = video_config['analysis_fps']  # Default
-        if len(incident_frames) >= 2:
-            try:
-                # Parse timestamps to calculate actual duration
-                from datetime import datetime
-                first_time = datetime.fromisoformat(incident_frames[0].get('timestamp', ''))
-                last_time = datetime.fromisoformat(incident_frames[-1].get('timestamp', ''))
-                duration_seconds = (last_time - first_time).total_seconds()
-                
-                if duration_seconds > 0:
-                    actual_fps = len(incident_frames) / duration_seconds
-                    logger.info(f"📊 Calculated actual FPS: {actual_fps:.2f} from {len(incident_frames)} frames over {duration_seconds:.2f}s")
-                    
-                    # Cap FPS to reasonable range
-                    if actual_fps < 10:
-                        logger.warning(f"⚠️  FPS too low ({actual_fps:.2f}), using 15 FPS")
-                        actual_fps = 15
-                    elif actual_fps > 35:
-                        logger.warning(f"⚠️  FPS too high ({actual_fps:.2f}), using 30 FPS") 
-                        actual_fps = 30
-            except Exception as e:
-                logger.warning(f"Could not calculate actual FPS from timestamps: {e}, using default {actual_fps}")
-        
-        # Create secure temporary video file with incident-specific naming
+        # Use uploaded video directly for email (no need to regenerate)
+        # Just copy to a new temp file with incident-specific naming
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         risk_level = incident_analysis.get('risk_level', 'UNKNOWN') if incident_analysis else 'UNKNOWN'
         
         temp_prefix = f"vigint_incident_{client_id}_{risk_level}_{timestamp}_"
-        temp_suffix = f".{video_config['video_format']}"
+        temp_suffix = '.mp4'
         
         # Check storage and create secure temp file
         storage_status = monitor_storage_usage()
@@ -638,26 +609,28 @@ def generate_incident_video(client_id, incident_analysis=None, buffer_type='long
         
         video_path = temp_result['path']
         
-        # Generate video with ACTUAL FPS for correct playback speed
-        logger.info(f"🎬 Creating video with {actual_fps:.2f} FPS for natural playback speed")
-        result = create_video_from_frames(
-            incident_frames, 
-            video_path, 
-            fps=actual_fps,  # Use calculated FPS, not config FPS
-            video_format=video_config['video_format'],
-            quality_optimization=True
-        )
+        # Copy uploaded video to incident video path
+        import shutil
+        shutil.copy2(source_video_path, video_path)
         
-        if not result['success']:
-            return result
+        logger.info(f"📹 Using uploaded video for incident ({video_meta.get('video_size_mb', 0):.2f} MB)")
         
-        # Add incident-specific metadata
+        # Return success with video metadata
+        result = {
+            'success': True,
+            'video_path': video_path,
+            'frames_processed': video_meta.get('frame_count', 0),
+            'fps': video_meta.get('fps', 25),
+            'duration': video_meta.get('duration', 0),
+            'file_size_mb': video_meta.get('video_size_mb', 0)
+        }
+        
         result.update({
             'incident_type': incident_analysis.get('incident_type', 'security_incident') if incident_analysis else 'security_incident',
             'client_id': client_id,
             'risk_level': risk_level,
             'buffer_type': buffer_type,
-            'buffer_duration': buffer_duration,
+            'buffer_duration': result['duration'],
             'incident_timestamp': timestamp,
             'analysis_summary': incident_analysis.get('analysis', '') if incident_analysis else ''
         })
@@ -668,6 +641,102 @@ def generate_incident_video(client_id, incident_analysis=None, buffer_type='long
     except Exception as e:
         logger.error(f"Error generating incident video: {e}")
         return {'success': False, 'error': str(e)}
+
+
+def analyze_video_with_gemini(video_path, model, analyze_duration=None, buffer_type="short"):
+    """Analyze video file directly with Gemini using File API (NEW APPROACH)"""
+    if not model or not video_path or not os.path.exists(video_path):
+        return None
+    
+    try:
+        # Upload video to Gemini File API
+        logger.info(f"📤 Uploading video to Gemini File API...")
+        uploaded_video = genai.upload_file(video_path)
+        logger.info(f"✅ Video uploaded to Gemini: {uploaded_video.name}")
+        
+        # Wait for processing
+        import time as time_module
+        while uploaded_video.state.name == "PROCESSING":
+            time_module.sleep(1)
+            uploaded_video = genai.get_file(uploaded_video.name)
+        
+        if uploaded_video.state.name == "FAILED":
+            logger.error("❌ Video processing failed in Gemini")
+            return None
+        
+        # Build prompt based on duration
+        duration_text = f"first {analyze_duration} seconds" if analyze_duration else "entire video"
+        
+        prompt = f"""
+        Analyze the {duration_text} of this security video for shoplifting incidents in a retail environment.
+        
+        IMPORTANT: This is a VIDEO showing behavior over time. Look for MOVEMENT and BEHAVIOR PATTERNS.
+        
+        Focus on:
+        1. Customers concealing merchandise (watch their MOVEMENTS)
+        2. Suspicious handling of items (track HOW they interact over time)
+        3. Taking items without paying (follow the PROGRESSION)
+        4. Removing security tags or packaging (watch the SEQUENCE)
+        
+        Analyze the video to understand the complete context. A single suspicious moment is not enough - look for patterns.
+        
+        Return ONLY a JSON object without markdown formatting:
+        {{"incident_detected": boolean, "incident_type": string, "description": string, "analysis": string}}
+        
+        Answer in French.
+        """
+        
+        # Generate content with video
+        logger.info(f"🎬 Sending video to Gemini {model._model_name} for analysis...")
+        response = model.generate_content([uploaded_video, prompt])
+        
+        # Cleanup uploaded file
+        try:
+            genai.delete_file(uploaded_video.name)
+            logger.info(f"🗑️  Deleted uploaded video from Gemini")
+        except:
+            pass
+        
+        # Parse JSON response
+        try:
+            import json
+            response_text = response.text.strip()
+            
+            # Handle JSON wrapped in markdown code blocks
+            if response_text.startswith('```json'):
+                start_idx = response_text.find('{')
+                end_idx = response_text.rfind('}') + 1
+                if start_idx != -1 and end_idx > start_idx:
+                    response_text = response_text[start_idx:end_idx]
+            
+            analysis_json = json.loads(response_text)
+            has_security_incident = analysis_json.get('incident_detected', False)
+            description = analysis_json.get('description', '')
+            analysis_text = analysis_json.get('analysis', '')
+            incident_type = analysis_json.get('incident_type', '')
+                
+        except (json.JSONDecodeError, KeyError) as e:
+            logger.warning(f"Failed to parse JSON response: {e}")
+            analysis_text = response.text
+            has_security_incident = 'incident_detected": true' in analysis_text.lower()
+            incident_type = ""
+        
+        risk_level = "HIGH" if has_security_incident else "LOW"
+        
+        logger.info(f"✅ VIDEO analysis: incident_detected={has_security_incident}")
+        
+        return {
+            'has_security_incident': has_security_incident,
+            'incident_detected': has_security_incident,
+            'incident_type': incident_type,
+            'analysis': analysis_text,
+            'risk_level': risk_level,
+            'description': description
+        }
+        
+    except Exception as e:
+        logger.error(f"Error analyzing video with Gemini: {e}")
+        return None
 
 
 def analyze_short_video_for_security(frames, buffer_type="short"):
@@ -1107,7 +1176,7 @@ def add_frames_batch():
 @app.route('/api/video/upload', methods=['POST'])
 @require_api_key_flexible
 def upload_video():
-    """Upload video file and extract frames to buffer"""
+    """Upload video file - store for direct Gemini analysis"""
     try:
         data = request.get_json()
         if not data or 'video_data' not in data:
@@ -1120,65 +1189,50 @@ def upload_video():
         import base64
         video_bytes = base64.b64decode(video_base64)
         
-        # Save to temp file
-        import tempfile
-        with tempfile.NamedTemporaryFile(suffix='.mp4', delete=False) as temp_video:
-            temp_video.write(video_bytes)
-            temp_video_path = temp_video.name
+        # Save video file (Gemini will analyze it directly)
+        temp_result = create_secure_temp_file(suffix='.mp4', prefix='vigint_uploaded_')
+        if not temp_result['success']:
+            return jsonify({'error': 'Failed to create temp file'}), 500
         
-        # Extract frames from video using OpenCV
+        video_path = temp_result['path']
+        
+        with open(video_path, 'wb') as f:
+            f.write(video_bytes)
+        
+        video_size_mb = len(video_bytes) / (1024 * 1024)
+        
+        # Get video metadata
         import cv2
-        cap = cv2.VideoCapture(temp_video_path)
-        
-        # Get video FPS to calculate proper timestamps
+        cap = cv2.VideoCapture(video_path)
         video_fps = cap.get(cv2.CAP_PROP_FPS)
-        if video_fps == 0 or video_fps > 120:
-            video_fps = 25  # Default
-        frame_duration = 1.0 / video_fps  # Time between frames in seconds
-        
-        client_buffer = get_client_buffer(request.current_client.id)
-        client_buffer.clear()  # Clear old frames
-        
-        # Base timestamp for the video start
-        from datetime import timedelta
-        base_time = datetime.now()
-        
-        frame_count = 0
-        while True:
-            ret, frame = cap.read()
-            if not ret:
-                break
-            
-            # Encode frame to base64
-            _, buffer_img = cv2.imencode('.jpg', frame)
-            frame_base64 = base64.b64encode(buffer_img).decode('utf-8')
-            
-            # Calculate timestamp based on frame position and video FPS
-            frame_time = base_time + timedelta(seconds=frame_count * frame_duration)
-            
-            frame_info = {
-                'frame_data': frame_base64,
-                'frame_count': frame_count,
-                'timestamp': frame_time.isoformat()
-            }
-            client_buffer.append(frame_info)
-            frame_count += 1
-        
+        frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        duration_seconds = frame_count / video_fps if video_fps > 0 else 0
         cap.release()
         
-        # Cleanup temp file
-        import os
-        try:
-            os.unlink(temp_video_path)
-        except:
-            pass
+        # Store video metadata in client buffer (NOT individual frames!)
+        client_id = request.current_client.id
+        if client_id not in client_frame_buffers:
+            client_frame_buffers[client_id] = {}
         
-        logger.info(f"📹 Extracted {frame_count} frames from uploaded video (FPS: {video_fps:.1f}) for client {request.current_client.name}")
+        client_frame_buffers[client_id] = {
+            'type': 'video',
+            'video_path': video_path,
+            'video_size_mb': video_size_mb,
+            'fps': video_fps,
+            'frame_count': frame_count,
+            'duration': duration_seconds,
+            'upload_time': datetime.now().isoformat(),
+            'filename': video_filename
+        }
+        
+        logger.info(f"📹 Stored video for analysis: {video_size_mb:.2f} MB, {frame_count} frames, {duration_seconds:.1f}s @ {video_fps:.1f} FPS for client {request.current_client.name}")
         
         return jsonify({
             'status': 'uploaded',
-            'frames_extracted': frame_count,
-            'buffer_size': len(client_buffer)
+            'video_size_mb': video_size_mb,
+            'frame_count': frame_count,
+            'duration': duration_seconds,
+            'ready_for_analysis': True
         })
         
     except Exception as e:
@@ -1189,36 +1243,36 @@ def upload_video():
 @app.route('/api/video/analyze', methods=['POST'])
 @require_api_key_flexible
 def analyze_frame():
-    """Analyze recent frames for security incidents using dual buffer system"""
+    """Analyze uploaded video for security incidents using Gemini video API"""
     start_time = time.time()
     
     try:
         if not gemini_model_short:
             return jsonify({'error': 'AI analysis not available'}), 503
         
-        # Get client's frame buffer
-        client_buffer = get_client_buffer(request.current_client.id)
+        # Get client's video metadata
+        client_id = request.current_client.id
+        if client_id not in client_frame_buffers:
+            return jsonify({'error': 'No video uploaded'}), 400
         
-        if len(client_buffer) == 0:
-            return jsonify({'error': 'No frames in buffer'}), 400
+        video_meta = client_frame_buffers[client_id]
+        if not video_meta or video_meta.get('type') != 'video':
+            return jsonify({'error': 'No video in buffer'}), 400
         
-        # Get SHORT BUFFER (last 3 seconds) for Flash-Lite initial detection
-        # Client uploads 10-second video, we analyze only the most recent 3 seconds
-        short_buffer_seconds = 3
-        short_buffer_frames = short_buffer_seconds * video_config['analysis_fps']  # 75 frames
-        recent_frames = list(client_buffer)[-short_buffer_frames:] if len(client_buffer) >= short_buffer_frames else list(client_buffer)
+        video_path = video_meta.get('video_path')
+        if not video_path or not os.path.exists(video_path):
+            return jsonify({'error': 'Video file not found'}), 404
         
-        if not recent_frames:
-            return jsonify({'error': 'Insufficient frames for analysis'}), 400
+        duration = video_meta.get('duration', 0)
         
-        # Flash-Lite analyzes SHORT buffer (3 seconds) for quick detection
-        frames_for_analysis = recent_frames
-        duration_seconds = len(frames_for_analysis) / 25.0
-        logger.info(f"🎥 Flash-Lite analyzing {len(frames_for_analysis)} frames as SHORT VIDEO (~{duration_seconds:.1f}s)")
+        # Analyze video directly with Flash-Lite (first 3 seconds)
+        logger.info(f"🎥 Flash-Lite analyzing video ({duration:.1f}s) using Gemini video API")
         
-        analysis_result = analyze_short_video_for_security(
-            frames_for_analysis,
-            "short"
+        analysis_result = analyze_video_with_gemini(
+            video_path,
+            gemini_model_short,
+            analyze_duration=3,  # Analyze first 3 seconds for quick detection
+            buffer_type="short"
         )
         
         if not analysis_result:
@@ -1237,53 +1291,49 @@ def analyze_frame():
             cost=cost
         )
         
-        # Get frame count from the last frame analyzed
-        frame_count = recent_frames[-1]['frame_count'] if recent_frames else 0
-        logger.info(f"Video frames {frame_count - len(recent_frames) + 1}-{frame_count} analyzed for client {request.current_client.name}")
+        # Log video analysis
+        frame_count = video_meta.get('frame_count', 0)
+        logger.info(f"Video analyzed for client {request.current_client.name}: {frame_count} frames, {duration:.1f}s")
         
         # If security incident detected by short buffer, trigger detailed analysis with long buffer
         if analysis_result['has_security_incident']:
             logger.warning(f"🚨 SECURITY INCIDENT DETECTED by Flash-Lite for client {request.current_client.name}")
             logger.warning(f"   Triggering Gemini 2.5 Flash (long buffer) for confirmation...")
             
-            # Get LONG BUFFER (full 10 seconds) for Flash 2.5 detailed analysis
-            # Analyze the complete context to confirm/reject Flash-Lite's detection
-            incident_frames = list(client_buffer)  # All frames from 10-second upload
+            # Analyze FULL video (10 seconds) with Flash 2.5 for detailed confirmation
+            logger.info(f"🎥 Flash 2.5 analyzing full video ({duration:.1f}s) for confirmation")
             
-            # Flash 2.5 analyzes FULL buffer (10 seconds) for confirmation
-            frames_for_analysis = incident_frames
-            duration_seconds = len(frames_for_analysis) / 25.0
-            logger.info(f"🎥 Flash 2.5 analyzing {len(frames_for_analysis)} frames as LONG VIDEO (~{duration_seconds:.1f}s) for confirmation")
-            
-            # Perform detailed analysis on the incident context
-            detailed_analysis = analyze_incident_context(frames_for_analysis)
+            # Perform detailed analysis on the complete video
+            detailed_analysis = analyze_video_with_gemini(
+                video_path,
+                gemini_model_long,
+                analyze_duration=None,  # Analyze full video (10 seconds)
+                buffer_type="long"
+            )
             
             if detailed_analysis:
                 # Check if Flash (long buffer) confirms the incident
-                incident_confirmed = detailed_analysis.get('incident_confirmed', False)
+                incident_confirmed = detailed_analysis.get('has_security_incident', False)
                 
                 if incident_confirmed:
-                    logger.warning(f"✅ INCIDENT CONFIRMED by Gemini 2.5 Flash (long buffer)")
-                    logger.warning(f"   Confirmation: {detailed_analysis['confirmation_count']}/{detailed_analysis['total_frames_analyzed']} frames detected incident")
-                    analysis_result['detailed_analysis'] = detailed_analysis['frames']
-                    analysis_result['incident_frames_count'] = len(incident_frames)
+                    logger.warning(f"✅ INCIDENT CONFIRMED by Gemini 2.5 Flash (full video)")
+                    logger.warning(f"   Flash 2.5 confirmed the incident detected by Flash-Lite")
+                    analysis_result['detailed_analysis'] = detailed_analysis.get('analysis', '')
                     analysis_result['flash_confirmation'] = True
                 else:
-                    logger.warning(f"❌ INCIDENT REJECTED by Gemini 2.5 Flash (long buffer)")
-                    logger.warning(f"   Flash-Lite detected incident, but Flash found no issues (0/{detailed_analysis['total_frames_analyzed']} frames)")
-                    logger.warning(f"   Email alert will NOT be sent (Flash has final decision)")
-                    # Override the short buffer decision - Flash has veto power
+                    logger.warning(f"❌ INCIDENT REJECTED by Gemini 2.5 Flash (full video)")
+                    logger.warning(f"   Flash-Lite detected incident, but Flash 2.5 found no issues")
+                    logger.warning(f"   Email alert will NOT be sent (Flash 2.5 has final decision)")
+                    # Override the short buffer decision - Flash 2.5 has veto power
                     analysis_result['has_security_incident'] = False
-                    analysis_result['detailed_analysis'] = detailed_analysis['frames']
-                    analysis_result['incident_frames_count'] = len(incident_frames)
+                    analysis_result['detailed_analysis'] = detailed_analysis.get('analysis', '')
                     analysis_result['flash_confirmation'] = False
                     analysis_result['flash_veto'] = True
-                    analysis_result['veto_reason'] = 'Gemini 2.5 Flash (long buffer) did not confirm incident detected by Flash-Lite'
+                    analysis_result['veto_reason'] = 'Gemini 2.5 Flash did not confirm incident detected by Flash-Lite'
             else:
                 # If detailed analysis failed, fall back to short buffer decision
-                logger.warning(f"⚠️  Long buffer analysis failed, using Flash-Lite decision as fallback")
+                logger.warning(f"⚠️  Flash 2.5 analysis failed, using Flash-Lite decision as fallback")
                 analysis_result['detailed_analysis'] = None
-                analysis_result['incident_frames_count'] = len(incident_frames)
                 analysis_result['flash_confirmation'] = None
         
         return jsonify(analysis_result)
