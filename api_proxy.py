@@ -63,14 +63,17 @@ def initialize_gemini_models():
         )
         
         # Try different model versions with fallback
-        # Using gemini-2.5-flash as requested
+        # Short buffer uses Flash-Lite for cost-efficient screening
         short_model_versions = [
-            'gemini-2.5-flash',
+            'gemini-2.5-flash-lite',
+            'gemini-1.5-flash',
             'gemini-pro'
         ]
         
+        # Long buffer uses Flash only when incident detected by Flash-Lite
         long_model_versions = [
             'gemini-2.5-flash',
+            'gemini-1.5-pro',
             'gemini-pro'
         ]
         
@@ -2298,13 +2301,13 @@ Ceci est une alerte automatique du système de sécurité Vigint.
                 # Add video link to email body
                 body += f"""
 
-📹 PREUVES VIDÉO DISPONIBLES
+📹 VIDÉO :
 Lien vidéo sécurisé: {video_url}
 Taille du fichier: {video_size:.1f} MB
 Expiration: {expiration_time.strftime('%Y-%m-%d %H:%M:%S')} UTC (48 heures)
 ID Vidéo: {video_id}
 
-⚠️ IMPORTANT: Ce lien est sécurisé et expirera automatiquement dans 48 heures.
+⚠️ Ce lien est sécurisé et expirera automatiquement dans 48 heures.
 Cliquez sur le lien pour visualiser la vidéo de l'incident dans votre navigateur.
 """
                 
