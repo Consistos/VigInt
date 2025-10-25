@@ -1189,18 +1189,19 @@ def analyze_frame():
         if len(client_buffer) == 0:
             return jsonify({'error': 'No frames in buffer'}), 400
         
-        # Get ALL frames from uploaded video (client sends 10-second video)
-        # No need to limit - video upload already optimized the payload size
-        recent_frames = list(client_buffer)
+        # Get SHORT BUFFER (last 3 seconds) for Flash-Lite initial detection
+        # Client uploads 10-second video, we analyze only the most recent 3 seconds
+        short_buffer_seconds = 3
+        short_buffer_frames = short_buffer_seconds * video_config['analysis_fps']  # 75 frames
+        recent_frames = list(client_buffer)[-short_buffer_frames:] if len(client_buffer) >= short_buffer_frames else list(client_buffer)
         
         if not recent_frames:
             return jsonify({'error': 'Insufficient frames for analysis'}), 400
         
-        # Use ALL frames from uploaded video (already compressed, no need to sample)
-        # Video upload ensures payload is small enough for Gemini
+        # Flash-Lite analyzes SHORT buffer (3 seconds) for quick detection
         frames_for_analysis = recent_frames
-        duration_seconds = len(frames_for_analysis) / 25.0  # Approximate duration
-        logger.info(f"🎥 Flash-Lite analyzing {len(frames_for_analysis)} frames as VIDEO (~{duration_seconds:.1f}s)")
+        duration_seconds = len(frames_for_analysis) / 25.0
+        logger.info(f"🎥 Flash-Lite analyzing {len(frames_for_analysis)} frames as SHORT VIDEO (~{duration_seconds:.1f}s)")
         
         analysis_result = analyze_short_video_for_security(
             frames_for_analysis,
@@ -1232,12 +1233,14 @@ def analyze_frame():
             logger.warning(f"🚨 SECURITY INCIDENT DETECTED by Flash-Lite for client {request.current_client.name}")
             logger.warning(f"   Triggering Gemini 2.5 Flash (long buffer) for confirmation...")
             
-            # Get ALL frames for detailed analysis (already optimized via video upload)
-            incident_frames = list(client_buffer)
+            # Get LONG BUFFER (full 10 seconds) for Flash 2.5 detailed analysis
+            # Analyze the complete context to confirm/reject Flash-Lite's detection
+            incident_frames = list(client_buffer)  # All frames from 10-second upload
             
-            # Use ALL frames for detailed analysis - no sampling needed
-            # Video upload already compressed the data for efficient transfer
+            # Flash 2.5 analyzes FULL buffer (10 seconds) for confirmation
             frames_for_analysis = incident_frames
+            duration_seconds = len(frames_for_analysis) / 25.0
+            logger.info(f"🎥 Flash 2.5 analyzing {len(frames_for_analysis)} frames as LONG VIDEO (~{duration_seconds:.1f}s) for confirmation")
             
             # Perform detailed analysis on the incident context
             detailed_analysis = analyze_incident_context(frames_for_analysis)
@@ -1965,13 +1968,14 @@ def analyze_incident_context(frames):
         return None
     
     try:
-        # Analyze ALL frames from uploaded video (no sampling needed - video already compressed)
-        # Client uploads optimized video, server extracts all frames for complete analysis
-        logger.info(f"📹 Analyzing {len(frames)} frames as VIDEO sequence (~{len(frames)/25:.1f}s)")
+        # Analyze FULL 10-second video for detailed confirmation
+        # This is the LONG BUFFER analysis with complete temporal context
+        duration_seconds = len(frames) / 25.0
+        logger.info(f"📹 Flash 2.5 analyzing {len(frames)} frames as LONG VIDEO sequence (~{duration_seconds:.1f}s)")
         
         # Build prompt for VIDEO analysis
         prompt = f"""
-        Analyze this VIDEO SEQUENCE ({len(frames)} frames from security video) for retail security incidents.
+        Analyze this COMPLETE VIDEO SEQUENCE ({len(frames)} frames, ~{duration_seconds:.1f} seconds from security video) for retail security incidents.
         
         IMPORTANT: This is a VIDEO showing behavior over time. Look for MOVEMENT and BEHAVIOR PATTERNS.
         
