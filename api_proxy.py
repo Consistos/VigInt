@@ -1189,17 +1189,18 @@ def analyze_frame():
         if len(client_buffer) == 0:
             return jsonify({'error': 'No frames in buffer'}), 400
         
-        # Get short buffer (last 3 seconds) for initial analysis
-        short_buffer_frames = video_config['short_buffer_duration'] * video_config['analysis_fps']
-        recent_frames = list(client_buffer)[-short_buffer_frames:] if len(client_buffer) >= short_buffer_frames else list(client_buffer)
+        # Get ALL frames from uploaded video (client sends 10-second video)
+        # No need to limit - video upload already optimized the payload size
+        recent_frames = list(client_buffer)
         
         if not recent_frames:
             return jsonify({'error': 'Insufficient frames for analysis'}), 400
         
-        # Sample frames for Gemini to avoid API limits (25 frames ~= 1 second at 25 FPS)
-        # Full buffer will still be used for video creation
-        frames_for_analysis = recent_frames[-25:] if len(recent_frames) > 25 else recent_frames
-        logger.info(f"🎥 Flash-Lite analyzing {len(frames_for_analysis)} frames as SHORT VIDEO (~{len(frames_for_analysis)/25:.1f}s)")
+        # Use ALL frames from uploaded video (already compressed, no need to sample)
+        # Video upload ensures payload is small enough for Gemini
+        frames_for_analysis = recent_frames
+        duration_seconds = len(frames_for_analysis) / 25.0  # Approximate duration
+        logger.info(f"🎥 Flash-Lite analyzing {len(frames_for_analysis)} frames as VIDEO (~{duration_seconds:.1f}s)")
         
         analysis_result = analyze_short_video_for_security(
             frames_for_analysis,
@@ -1231,13 +1232,12 @@ def analyze_frame():
             logger.warning(f"🚨 SECURITY INCIDENT DETECTED by Flash-Lite for client {request.current_client.name}")
             logger.warning(f"   Triggering Gemini 2.5 Flash (long buffer) for confirmation...")
             
-            # Get long buffer (last 10 seconds) for detailed analysis
-            long_buffer_frames = video_config['long_buffer_duration'] * video_config['analysis_fps']
-            incident_frames = list(client_buffer)[-long_buffer_frames:] if len(client_buffer) >= long_buffer_frames else list(client_buffer)
+            # Get ALL frames for detailed analysis (already optimized via video upload)
+            incident_frames = list(client_buffer)
             
-            # Sample frames for Gemini to avoid API limits (30 frames for detailed analysis)
-            # Full buffer will still be used for video creation
-            frames_for_analysis = incident_frames[-30:] if len(incident_frames) > 30 else incident_frames
+            # Use ALL frames for detailed analysis - no sampling needed
+            # Video upload already compressed the data for efficient transfer
+            frames_for_analysis = incident_frames
             
             # Perform detailed analysis on the incident context
             detailed_analysis = analyze_incident_context(frames_for_analysis)
@@ -1965,13 +1965,13 @@ def analyze_incident_context(frames):
         return None
     
     try:
-        # Analyze sampled frames (caller provides 30 frames representing ~10 seconds)
-        # Full video buffer is still used for email video creation
-        logger.info(f"📹 Analyzing {len(frames)} sampled frames as VIDEO sequence (~{len(frames)/25:.1f}s)")
+        # Analyze ALL frames from uploaded video (no sampling needed - video already compressed)
+        # Client uploads optimized video, server extracts all frames for complete analysis
+        logger.info(f"📹 Analyzing {len(frames)} frames as VIDEO sequence (~{len(frames)/25:.1f}s)")
         
         # Build prompt for VIDEO analysis
         prompt = f"""
-        Analyze this VIDEO SEQUENCE ({len(frames)} frames sampled from a longer security video) for retail security incidents.
+        Analyze this VIDEO SEQUENCE ({len(frames)} frames from security video) for retail security incidents.
         
         IMPORTANT: This is a VIDEO showing behavior over time. Look for MOVEMENT and BEHAVIOR PATTERNS.
         
