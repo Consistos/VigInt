@@ -3,7 +3,7 @@ services:
   - type: web
     name: vigint-api-server
     env: python
-    runtime: python-3.11.0
+    runtime: python-3.11
     region: oregon
     plan: starter  # Can upgrade to standard or pro
     buildCommand: pip install -r requirements-api-server.txt
