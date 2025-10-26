@@ -3,7 +3,6 @@ services:
   - type: web
     name: vigint-api-server
     env: python
-    runtime: python-3.11
     region: oregon
     plan: starter  # Can upgrade to standard or pro
     buildCommand: pip install -r requirements-api-server.txt
@@ -14,6 +13,8 @@ services:
       mountPath: /opt/render/project/src/uploads
       sizeGB: 10  # Adjust based on your needs
     envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.11
       - key: HOST
         value: 0.0.0.0
       - key: SECRET_KEY
