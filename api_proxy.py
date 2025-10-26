@@ -63,17 +63,14 @@ def initialize_gemini_models():
         )
         
         # Try different model versions with fallback
-        # Short buffer uses 1.5 Flash for cost-efficient screening
+        # Cost optimization: short buffer analyzes 3s, long buffer analyzes 10s only when incident detected
         short_model_versions = [
-            'gemini-1.5-flash',
-            'gemini-1.5-flash-8b',
+            'gemini-2.5-flash',
             'gemini-pro'
         ]
         
-        # Long buffer uses 2.5 Flash only when incident detected by short buffer
         long_model_versions = [
             'gemini-2.5-flash',
-            'gemini-1.5-pro',
             'gemini-pro'
         ]
         
