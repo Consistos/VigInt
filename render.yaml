@@ -53,5 +53,5 @@ databases:
   - name: vigint-db
     databaseName: vigint
     user: vigint
-    plan: plus  # New paid plan - no expiration, includes backups
+    plan: basic-1gb  # $7/month - no expiration, 15GB default storage, includes backups
     region: oregon
