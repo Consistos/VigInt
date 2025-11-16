@@ -53,5 +53,5 @@ databases:
   - name: vigint-db
     databaseName: vigint
     user: vigint
-    plan: free  # Free tier (1GB storage, expires after 90 days)
+    plan: starter  # $7/month - no expiration, 10GB storage, backups
     region: oregon
