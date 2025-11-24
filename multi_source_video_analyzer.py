@@ -398,7 +398,9 @@ class MultiSourceVideoAnalyzer:
                         # Flash confirmed the incident - handle it
                         source = self.video_sources.get(source_id)
                         if source:
-                            self._handle_security_incident(analysis_result, source)
+                            # Extract client email from API response
+                            client_email = results.get('client_email')
+                            self._handle_security_incident(analysis_result, source, recipient_email=client_email)
                     elif analysis_result.get('flash_veto', False):
                         logger.info(f"🚫 Incident vetoed by Flash for source {source_id}")
                 
@@ -646,7 +648,7 @@ class MultiSourceVideoAnalyzer:
                 'cameras_involved': source_names or []
             }
     
-    def _handle_security_incident(self, analysis_result, source):
+    def _handle_security_incident(self, analysis_result, source, recipient_email=None):
         """Handle detected security incident (confirmed by Flash)"""
         try:
             logger.warning("🚨 CONFIRMED SECURITY EVENT (Flash approved)")
@@ -723,14 +725,31 @@ Veuillez examiner immédiatement les preuves vidéo ci-jointes.
             
             # Send alert with video evidence
             if video_frames:
-                result = send_security_alert_with_video(message, video_frames, incident_data)
+                result = send_security_alert_with_video(
+                    message, 
+                    video_frames, 
+                    incident_data,
+                    recipient_email=recipient_email
+                )
                 if result.get('success', False):
                     logger.info("🚨 MULTI-SOURCE SECURITY ALERT WITH VIDEO SENT!")
                     logger.info(f"   Alert will not repeat for same incident for {self.incident_cooldown}s")
                 else:
                     logger.error(f"Failed to send security alert: {result.get('error', 'Unknown error')}")
             else:
-                logger.warning("No video frames available for alert")
+                # Fallback to basic email alert
+                from alerts import AlertManager
+                alert_manager = AlertManager()
+                result = alert_manager.send_email_alert(
+                    message, 
+                    "security", 
+                    incident_data=incident_data,
+                    recipient_email=recipient_email
+                )
+                if result.get('success', False):
+                    logger.info("🚨 BASIC EMAIL ALERT SENT (NO VIDEO)! Alert will not repeat for same incident for {self.incident_cooldown}s")
+                else:
+                    logger.error(f"Failed to send security alert: {result.get('error', 'Unknown error')}")
             
         except Exception as e:
             logger.error(f"Error handling security incident: {e}")

@@ -1,0 +1,23 @@
+{
+  "name": "vigint",
+  "version": "1.0.0",
+  "description": "A comprehensive platform providing RTSP video streaming and automated billing services with API management.",
+  "main": "index.js",
+  "scripts": {},
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Consistos/VigInt.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/Consistos/VigInt/issues"
+  },
+  "homepage": "https://github.com/Consistos/VigInt#readme",
+  "devDependencies": {
+    "@playwright/test": "^1.56.1",
+    "@types/node": "^24.10.1"
+  }
+}

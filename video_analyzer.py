@@ -510,7 +510,8 @@ class VideoAnalyzer:
                 'incident_type': result.get('incident_type', ''),
                 'frame_shape': frame.shape,
                 'token_usage': result.get('token_usage', {}),
-                'has_security_incident': result.get('has_security_incident', False)  # Keep both for compatibility
+                'has_security_incident': result.get('has_security_incident', False),  # Keep both for compatibility
+                'client_email': result.get('client_email')  # Extract client email from server response
             }
             
             logger.info(f"Frame {self.frame_count} analyzed via server")
@@ -547,7 +548,7 @@ class VideoAnalyzer:
             'frame_shape': frame.shape if frame is not None else (480, 640, 3)
         }
     
-    def send_alert_email(self, analysis_result, video_frames=None):
+    def send_alert_email(self, analysis_result, video_frames=None, recipient_email=None):
         """Send email alert with analysis results and optional video"""
         # If using remote API, send alert via server
         if self.use_remote_api and self.api_client:
@@ -565,42 +566,46 @@ class VideoAnalyzer:
             return False
         
         try:
-            # Import alerts module for video functionality
-            from alerts import send_security_alert_with_video
+            from alerts import AlertManager, send_security_alert_with_video
             
-            # Prepare incident data
+            # Use client email if provided, otherwise fall back to default
+            if recipient_email:
+                logger.info(f"📧 Sending alert to client email: {recipient_email}")
+            else:
+                logger.info("📧 Sending alert to default recipient (EMAIL_TO)")
+            
+            message = analysis_result.get('analysis', 'Security incident detected')
             incident_data = {
-                'risk_level': 'HIGH' if analysis_result.get('incident_detected', False) else 'LOW',
-                'frame_count': analysis_result.get('frame_count', 0),
-                'analysis': analysis_result.get('analysis', ''),
-                'incident_type': analysis_result.get('incident_type', '')
+                'incident_type': analysis_result.get('incident_type', 'Unknown'),
+                'timestamp': analysis_result.get('timestamp', datetime.now().isoformat()),
+                'frame_count': analysis_result.get('frame_count', 0)
             }
             
-            # Create alert message in French
-            from datetime import datetime
-            timestamp_obj = datetime.fromisoformat(analysis_result['timestamp'])
-            formatted_time = timestamp_obj.strftime('%H:%M:%S - %d/%m/%Y')
-            
-            message = f"""
-🚨 ALERTE SÉCURITÉ VIGINT
-
-Heure: {formatted_time}
-Type d'incident: {analysis_result.get('incident_type', 'Non spécifié')}
-"""
-            
-            # Send alert with video if frames are available
             if video_frames:
-                result = send_security_alert_with_video(message, video_frames, incident_data)
-                logger.info("🚨 EMAIL D'ALERTE SÉCURITÉ AVEC VIDÉO ENVOYÉ!")
+                # Use the new convenience function that handles video creation and upload
+                result = send_security_alert_with_video(
+                    message, 
+                    video_frames, 
+                    incident_data,
+                    recipient_email=recipient_email
+                )
             else:
-                # Fallback to basic email alert
-                from alerts import AlertManager
+                # Fallback to simple email if no frames
                 alert_manager = AlertManager()
-                result = alert_manager.send_email_alert(message, "security", incident_data=incident_data)
-                logger.info("🚨 EMAIL D'ALERTE SÉCURITÉ ENVOYÉ (sans vidéo)!")
+                result = alert_manager.send_email_alert(
+                    message, 
+                    "security", 
+                    incident_data=incident_data,
+                    recipient_email=recipient_email
+                )
             
-            return result.get('success', False)
-            
+            if result:
+                logger.info("✅ Alert email sent successfully")
+                return True
+            else:
+                logger.error("❌ Failed to send alert email")
+                return False
+                
         except Exception as e:
             logger.error(f"Error sending email alert: {e}")
             logger.warning(f"🚨 SECURITY ALERT (email failed): {analysis_result['analysis']}")
@@ -852,7 +857,8 @@ Type d'incident: {analysis_result.get('incident_type', 'Non spécifié')}
                     # logger.warning(f"   Cooldowns: Local {self.incident_cooldown}s | Global 300s (visual deduplication)")
                     
                     # Send alert email with video
-                    self.send_alert_email(result, video_frames)
+                    client_email = result.get('client_email')
+                    self.send_alert_email(result, video_frames, recipient_email=client_email)
         
         except Exception as e:
             logger.error(f"Error in async frame analysis: {e}")

@@ -1336,6 +1336,9 @@ def analyze_frame():
                 analysis_result['detailed_analysis'] = None
                 analysis_result['flash_confirmation'] = None
         
+        # Add client email to response for routing alerts
+        analysis_result['client_email'] = request.current_client.email
+        
         return jsonify(analysis_result)
         
     except Exception as e:
@@ -1406,6 +1409,7 @@ def analyze_multi_source():
         
         results = {
             'client_name': request.current_client.name,
+            'client_email': request.current_client.email,
             'timestamp': datetime.now().isoformat(),
             'sources_analyzed': len(source_ids),
             'sources': {}
@@ -1525,6 +1529,9 @@ def analyze_multi_source():
         
         logger.info(f"Multi-source analysis completed for {len(source_ids)} sources")
         logger.info(f"   Detected: {total_incidents_detected}, Confirmed: {total_incidents_confirmed}")
+        
+        # Add client email to result so client can send alerts to the right address
+        results['client_email'] = request.current_client.email
         
         return jsonify(results)
         
