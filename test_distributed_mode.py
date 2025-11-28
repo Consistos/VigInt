@@ -38,5 +38,5 @@ if analyzer.use_remote_api and analyzer.api_client:
         traceback.print_exc()
 else:
     print("❌ Not in client mode or API client not initialized")
-    print("   Check your config.ini has: api_server_url = https://vigint.onrender.com")
+    print("   Check your config.ini has: api_server_url = https://vigint.sparse-ai.com")
     print("   Check your .env has: VIGINT_API_KEY=...")

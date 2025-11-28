@@ -62,9 +62,9 @@ to_email = alerts@example.com
 # NOTE: Video storage is now integrated into the main API server
 # Use the same URL as api_server_url if using distributed deployment
 # For local deployment, use http://localhost:5002
-# For Render.com: https://vigint.onrender.com
+# For Render.com: https://vigint.sparse-ai.com
 api_key = your-sparse-ai-api-key-here
-base_url = https://vigint.onrender.com
+base_url = https://vigint.sparse-ai.com
 default_expiration_hours = 48
 
 [Logging]

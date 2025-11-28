@@ -103,6 +103,20 @@ class Config:
         # If set, use remote API server. Otherwise, assume local deployment
         return self.get('API', 'api_server_url', None)
     
+    @property
+    def base_url(self):
+        """Get base URL for the application (public facing URL)"""
+        # Priority:
+        # 1. SPARSE_AI_BASE_URL (Explicit override)
+        # 2. RENDER_EXTERNAL_URL (Render.com default)
+        # 3. config.ini [SparseAI] base_url
+        # 4. Default fallback
+        return (
+            os.getenv('SPARSE_AI_BASE_URL') or 
+            os.getenv('RENDER_EXTERNAL_URL') or 
+            self.get('SparseAI', 'base_url', 'https://vigint.sparse-ai.com')
+        )
+
     # Email configuration properties
     @property
     def email_smtp_server(self):

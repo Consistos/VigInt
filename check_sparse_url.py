@@ -25,12 +25,12 @@ print(f"  {final_url}")
 
 # Check if it's the correct production URL
 print(f"\n✅ Status:")
-if 'vigint.onrender.com' in final_url:
-    print("  ✓ Correctly configured for Render.com production")
+if 'vigint.sparse-ai.com' in final_url:
+    print("  ✓ Correctly configured for Sparse AI production")
 elif '127.0.0.1' in final_url or 'localhost' in final_url:
     print("  ✗ ISSUE: Still using localhost!")
     print("\n  To fix: Update config.ini [SparseAI] section:")
-    print("  base_url = https://vigint.onrender.com")
+    print("  base_url = https://vigint.sparse-ai.com")
 else:
     print(f"  ? Unknown URL: {final_url}")
 

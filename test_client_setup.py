@@ -9,7 +9,7 @@ import requests
 load_dotenv()
 
 api_key = os.getenv('VIGINT_API_KEY')
-api_url = os.getenv('VIGINT_API_URL', 'https://vigint.onrender.com')
+api_url = os.getenv('VIGINT_API_URL', 'https://vigint.sparse-ai.com')
 
 if not api_key:
     print("❌ VIGINT_API_KEY not found in .env file")

@@ -16,7 +16,7 @@ class RemoteClientManager:
     """Manage clients on remote Vigint server via Admin API"""
     
     def __init__(self, server_url: Optional[str] = None, admin_key: Optional[str] = None):
-        self.server_url = server_url or os.getenv('VIGINT_SERVER_URL', 'https://vigint.onrender.com')
+        self.server_url = server_url or os.getenv('VIGINT_SERVER_URL', 'https://vigint.sparse-ai.com')
         self.admin_key = admin_key or os.getenv('VIGINT_ADMIN_KEY')
         
         if not self.admin_key:
@@ -154,7 +154,7 @@ Examples:
   python manage_clients_remote.py --reactivate --client-id 3
 
 Environment Variables:
-  VIGINT_SERVER_URL    Server URL (default: https://vigint.onrender.com)
+  VIGINT_SERVER_URL    Server URL (default: https://vigint.sparse-ai.com)
   VIGINT_ADMIN_KEY     Admin key (required, same as server's SECRET_KEY)
         """
     )

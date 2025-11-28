@@ -7,7 +7,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-server_url = os.getenv('VIGINT_API_URL', 'https://vigint.onrender.com')
+server_url = os.getenv('VIGINT_API_URL', 'https://vigint.sparse-ai.com')
 admin_key = os.getenv('VIGINT_ADMIN_KEY')
 
 if not admin_key:

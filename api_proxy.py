@@ -2297,7 +2297,7 @@ Ceci est une alerte automatique du système de sécurité Vigint.
                 token = hashlib.sha256(token_data.encode()).hexdigest()[:32]
                 
                 # Generate public link
-                server_url = os.getenv('RENDER_EXTERNAL_URL', 'https://vigint.onrender.com')
+                server_url = config.base_url
                 video_url = f"{server_url}/video/{video_id}?token={token}"
                 
                 video_size = os.path.getsize(permanent_path) / (1024 * 1024)  # Size in MB

@@ -674,13 +674,48 @@ def main():
         if args.mode in ['api', 'full'] and proxy_app and not api_proxy_running:
             logger.info("Starting API server...")
             
-            # Run the application
-            proxy_app.run(
-                host=config.host,
-                port=config.port,
-                debug=config.debug,
-                use_reloader=False  # Disable reloader to avoid issues with RTSP server
-            )
+            if config.debug:
+                logger.info("🔧 Running in DEBUG mode with Flask development server")
+                # Run the application
+                proxy_app.run(
+                    host=config.host,
+                    port=config.port,
+                    debug=config.debug,
+                    use_reloader=False  # Disable reloader to avoid issues with RTSP server
+                )
+            else:
+                logger.info("🚀 Running in PRODUCTION mode with Gunicorn")
+                import subprocess
+                
+                # Build gunicorn command
+                # Use 4 workers or (2 * cpu_count) + 1
+                workers = '4'
+                try:
+                    import multiprocessing
+                    workers = str(multiprocessing.cpu_count() * 2 + 1)
+                except:
+                    pass
+                
+                cmd = [
+                    'gunicorn',
+                    '--bind', f'{config.host}:{config.port}',
+                    '--workers', workers,
+                    '--timeout', '120',
+                    '--access-logfile', '-',
+                    '--error-logfile', '-',
+                    'api_proxy:app'
+                ]
+                
+                logger.info(f"Executing: {' '.join(cmd)}")
+                
+                try:
+                    # Run gunicorn
+                    subprocess.run(cmd, check=True)
+                except subprocess.CalledProcessError as e:
+                    logger.error(f"Gunicorn server failed: {e}")
+                    return 1
+                except KeyboardInterrupt:
+                    logger.info("Gunicorn server stopped")
         elif args.mode in ['api', 'full'] and api_proxy_running:
             logger.info("API proxy already running, skipping startup")
         else:
